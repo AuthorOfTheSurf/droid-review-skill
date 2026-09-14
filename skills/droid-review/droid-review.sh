@@ -43,14 +43,17 @@ ORIG_PWD="$PWD"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 
-# The default branch: origin/HEAD when the clone knows it, else whichever of
-# main/master exists. DROID_REVIEW_BASE or --base overrides.
+# The default branch, as a ref that actually resolves here: origin/HEAD when
+# the clone knows it, else the first of origin/main, origin/master, main,
+# master that exists. Keep the remote form — a worktree or CI checkout may
+# have no local branch of that name, and a stale local one diffs against old
+# commits. DROID_REVIEW_BASE or --base overrides.
 default_base() {
   local ref
   if ref="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"; then
-    echo "${ref#origin/}"; return
+    echo "$ref"; return
   fi
-  for ref in main master; do
+  for ref in origin/main origin/master main master; do
     git rev-parse --verify -q "$ref" >/dev/null && { echo "$ref"; return; }
   done
   echo "main"

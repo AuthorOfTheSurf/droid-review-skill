@@ -15,7 +15,10 @@ an API would read to someone who did not write it.
 
 **Where the script is.** `droid-feedback.sh` sits next to this file and is a
 thin wrapper — the implementation lives in the **droid-review** skill folder
-beside it, so the two commands cannot drift. Both must be installed.
+beside it, so the two commands cannot drift. Both must be installed. The path
+is `.claude/skills/droid-feedback/droid-feedback.sh` for a project install and
+`~/.claude/skills/droid-feedback/droid-feedback.sh` for a global one. Use
+whichever directory this SKILL.md was loaded from, and substitute it below.
 
 ## 1. Ask
 

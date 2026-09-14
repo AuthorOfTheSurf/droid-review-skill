@@ -104,6 +104,18 @@ mkdir -p ~/.claude/skills
 cp -r skills/droid-review skills/droid-feedback ~/.claude/skills/
 ```
 
+Or symlink them from a clone of this repo, so a `git pull` (or an edit here)
+reaches every project with nothing to copy:
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" ~/.claude/skills/
+```
+
+A global install still writes reviews to `.droid-reviews/` in whichever repo
+you run it from, so add that to each repo's `.gitignore` or to your global git
+excludes file.
+
 Start a new Claude Code session and run:
 
 ```
