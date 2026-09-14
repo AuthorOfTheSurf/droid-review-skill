@@ -104,13 +104,16 @@ mkdir -p ~/.claude/skills
 cp -r skills/droid-review skills/droid-feedback ~/.claude/skills/
 ```
 
-Or symlink them from a clone of this repo, so a `git pull` (or an edit here)
-reaches every project with nothing to copy:
+Or, recommended, symlink them from a clone of this repo, so a `git pull` (or an
+edit here) reaches every project with nothing to copy:
 
 ```bash
 mkdir -p ~/.claude/skills
 ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" ~/.claude/skills/
 ```
+
+Run `git pull` in the clone now and then to pick up new model shortcuts. A copy
+made with `cp` never updates.
 
 A global install still writes reviews to `.droid-reviews/` in whichever repo
 you run it from, so add that to each repo's `.gitignore` or to your global git
