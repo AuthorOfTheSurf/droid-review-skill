@@ -1,6 +1,7 @@
 ---
 name: droid-feedback
 description: Ask Factory's droid for a second opinion on the branch in plain words — the copy, the API shape, a design question, anything that is not a structured code review — then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] <ask>"
 ---
 
 # droid feedback → weigh → propose → re-check
@@ -25,12 +26,15 @@ whichever directory this SKILL.md was loaded from, and substitute it below.
 ```bash
 .claude/skills/droid-feedback/droid-feedback.sh "<the user's ask, in their words>"
 .claude/skills/droid-feedback/droid-feedback.sh --uncommitted "<ask>"
-.claude/skills/droid-feedback/droid-feedback.sh --model gemini-3.8-flash "<ask>"
+.claude/skills/droid-feedback/droid-feedback.sh "gemini <ask>"
 ```
 
 The ask is required and carries the whole framing — what to look at, what
 counts, and how to report it. Pass the user's `$ARGUMENTS` through as-is where
 you can; sharpen it only where it is genuinely ambiguous, and say that you did.
+Keep a leading shortcut and effort word in place when you sharpen: the script
+reads them exactly as droid-review does (`gemini review the copy`, `luna xhigh
+is this approach sane`), and `--models` lists the shortcuts.
 A vague ask gets vague prose back, so it is worth a sentence of specifics:
 
 ```bash
@@ -44,9 +48,8 @@ named more than one way."
 ```
 
 **Pick the model for the job.** The user runs different reviews on different
-models — `--model gemini-3.8-flash` for language and copy work, the default
-`glm-5.3-flash` for code-shaped questions. Ask if it matters and they have not
-said.
+models — `gemini` for language and copy work, the default `glm` for
+code-shaped questions. Ask if it matters and they have not said.
 
 The script prints the saved markdown file and the droid **session id**; keep
 the id. Everything droid-review's script accepts works here too (`--base`,

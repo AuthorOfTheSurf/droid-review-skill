@@ -8,16 +8,25 @@
 #   droid-review.sh --feedback "<ask>"    # not /review: ask droid for anything, in its own words
 #   droid-review.sh --base origin/main
 #   droid-review.sh --uncommitted         # only the working tree
+#   droid-review.sh luna                  # a shortcut: gpt-5.6-luna at reasoning max
+#   droid-review.sh "gemini the auth changes"   # shortcut, then the emphasis
+#   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
 #   droid-review.sh --model glm-5.2 --effort max
+#   droid-review.sh --models              # list the shortcuts and exit
 #   droid-review.sh --checks docs/testing.md   # inline a file listing how to verify this repo
 #   droid-review.sh --session <id> "re-check the fixes in HEAD"
 #   droid-review.sh --session last        # the newest review's session, by file
 #
 # The positional argument is what you are asking droid for this time: emphasis
 # on top of /review, the whole ask under --feedback, or the re-check
-# instruction with --session.
+# instruction with --session. Its first word picks the model when it is exactly
+# a shortcut (--models) or a droid model id, and the word after that sets the
+# reasoning effort when it is exactly an effort level. --model wins over both.
+# Without a model the default is glm. Efforts are checked against what
+# `droid exec --help` says each model supports, before droid runs.
 #
-# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT.
+# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
+# (the effort applies only when the model has no pinned level).
 #
 # Needs: droid (https://docs.factory.ai/droid-cli/quickstart), git, python3.
 #
@@ -41,7 +50,56 @@ need()  { [ $# -ge 2 ] || die "$1 needs a value (--help for usage)"; }
 
 ORIG_PWD="$PWD"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
-[ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
+
+# Shortcuts: name → "model [effort]". A pinned effort is the level that model
+# should review at; without one, droid's per-model default applies. The family
+# names (fable, opus, astra, sol, grok) point at the newest model in the family
+# as of droid 0.218.2 — move them when droid ships a newer one.
+SHORTCUTS="glm gemini luna auto fable opus astra sol grok"
+shortcut() {
+  case "$1" in
+    glm)    echo "glm-5.3-flash high" ;;
+    gemini) echo "gemini-3.8-flash high" ;;
+    luna)   echo "gpt-5.6-luna max" ;;
+    auto)   echo "auto" ;;
+    fable)  echo "claude-fable-5.1" ;;
+    opus)   echo "claude-opus-5" ;;
+    astra)  echo "gpt-6-astra" ;;
+    sol)    echo "gpt-5.6-sol" ;;
+    grok)   echo "grok-4.6" ;;
+    *) return 1 ;;
+  esac
+}
+is_effort() {
+  case "$1" in off|none|minimal|low|medium|high|xhigh|max) return 0 ;; esac
+  return 1
+}
+
+# droid's model catalog, read from `droid exec --help`: one "<id> <efforts>"
+# line per model, efforts comma-separated, "-" for no reasoning setting and "?"
+# when the help gives no details (custom models). Empty if the format changed,
+# in which case nothing is validated and droid gets the last word.
+catalog() {
+  droid exec --help 2>/dev/null | python3 -c '
+import re, sys
+section, ids, details = None, [], {}
+for line in sys.stdin.read().splitlines():
+    if line and not line[0].isspace():
+        section = line.strip()
+        continue
+    if section in ("Available Models:", "Custom Models:"):
+        m = re.match(r"\s+(\S+)\s{2,}(.+)$", line)
+        if m:
+            ids.append((m.group(1), re.sub(r" \(default\)$", "", m.group(2).strip())))
+    elif section == "Model details:":
+        m = re.match(r"\s+- (.+): supports reasoning: (\w+); supported: \[([^\]]*)\]", line)
+        if m:
+            efforts = m.group(3).replace(" ", "") if m.group(2) == "Yes" else "-"
+            details[m.group(1)] = efforts
+for model_id, name in ids:
+    print(model_id, details.get(name, "?"))
+'
+}
 
 # The default branch, as a ref that actually resolves here: origin/HEAD when
 # the clone knows it, else the first of origin/main, origin/master, main,
@@ -61,8 +119,8 @@ default_base() {
 
 MODE="review"
 BASE="${DROID_REVIEW_BASE:-}"
-MODEL="${DROID_REVIEW_MODEL:-glm-5.3-flash}"
-EFFORT="${DROID_REVIEW_EFFORT:-high}"
+MODEL="${DROID_REVIEW_MODEL:-}"
+EFFORT=""
 SCOPE="branch"
 CHECKS=""
 SESSION=""
@@ -76,18 +134,68 @@ while [ $# -gt 0 ]; do
     --session) need "$@"; SESSION="$2"; shift 2 ;;
     --feedback) MODE="feedback";        shift ;;
     --uncommitted) SCOPE="uncommitted"; shift ;;
+    --models)
+      for s in $SHORTCUTS; do
+        set -- $(shortcut "$s")
+        printf '%-7s %-18s %s\n' "$s" "$1" "${2:-droid default}"
+      done
+      exit 0 ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1 (--help for usage)" ;;
     *) ASK="${ASK:+$ASK }$1"; shift ;;
   esac
 done
 
+[ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
 [ -n "$BASE" ] || BASE="$(default_base)"
 
 command -v droid >/dev/null || \
   die "droid CLI not installed: https://docs.factory.ai/droid-cli/quickstart"
 command -v python3 >/dev/null || die "python3 not found (used to parse droid's JSON)"
+
+CATALOG="$(catalog || true)"
+[ -n "$CATALOG" ] || echo "could not read droid's model list; skipping model checks" >&2
+catalog_entry() { printf '%s\n' "$CATALOG" | awk -v m="$1" '$1 == m { print $2; exit }'; }
+
+# The ask's first word picks the model when it is exactly a shortcut or a model
+# id, and the next word the effort when it is exactly an effort level. The rest
+# of the ask is left as typed, newlines included.
+drop_word() { ASK="${ASK#"$1"}"; ASK="${ASK#"${ASK%%[![:space:]]*}"}"; }
+WORD_EFFORT=""
+if [ -z "$MODEL" ] && [ -n "$ASK" ]; then
+  word="${ASK%%[[:space:]]*}"
+  if shortcut "$word" >/dev/null || [ -n "$(catalog_entry "$word")" ]; then
+    MODEL="$word"; drop_word "$word"
+    word="${ASK%%[[:space:]]*}"
+    if [ -n "$word" ] && is_effort "$word"; then WORD_EFFORT="$word"; drop_word "$word"; fi
+  fi
+fi
+
+# Effort, most specific first: --effort, the word after the model, the
+# shortcut's pinned level, DROID_REVIEW_EFFORT, then droid's per-model default.
+PINNED=""
+if spec="$(shortcut "${MODEL:-glm}")"; then
+  MODEL="${spec%% *}"
+  [ "$spec" = "$MODEL" ] || PINNED="${spec#* }"
+fi
+EFFORT="${EFFORT:-${WORD_EFFORT:-${PINNED:-${DROID_REVIEW_EFFORT:-}}}}"
+
+if [ -n "$CATALOG" ]; then
+  supported="$(catalog_entry "$MODEL")"
+  [ -n "$supported" ] || \
+    die "droid has no model '$MODEL' (shortcuts: $SHORTCUTS; every id: droid exec --help)"
+  if [ -n "$EFFORT" ]; then
+    case "$supported" in
+      -) die "$MODEL has no reasoning effort setting; drop '$EFFORT'" ;;
+      \?) ;;
+      *) case ",$supported," in
+           *",$EFFORT,"*) ;;
+           *) die "$MODEL takes reasoning effort $supported, not '$EFFORT'" ;;
+         esac ;;
+    esac
+  fi
+fi
 
 if [ "$MODE" = "feedback" ] && [ -z "$SESSION" ] && [ -z "$ASK" ]; then
   die "--feedback needs an ask: droid-feedback.sh \"<what you want droid to look at>\""
@@ -195,10 +303,11 @@ trap 'rm -f "$JSON"' EXIT
 # version with `droid exec --auto medium --remove-tools ApplyPatch --list-tools`
 # — droid ignores unknown flags silently, so a rename here fails open.
 DROID_ARGS=(
-  exec -o json -m "$MODEL" -r "$EFFORT"
+  exec -o json -m "$MODEL"
   --auto medium --remove-tools ApplyPatch
   --tag claude-triage
 )
+[ -n "$EFFORT" ] && DROID_ARGS+=(-r "$EFFORT")
 [ -n "$SESSION" ] && DROID_ARGS+=(-s "$SESSION")
 
 set +e
@@ -222,7 +331,7 @@ body = (d.get("result") or "").strip()
 with open(out, "w") as f:
     f.write("# droid %s\n\n" % ("feedback" if mode == "feedback" else "review"))
     f.write(f"- when: {datetime.datetime.now().isoformat(timespec='seconds')}\n")
-    f.write(f"- model: {model} (reasoning {effort})\n")
+    f.write(f"- model: {model} (reasoning {effort or 'droid default'})\n")
     f.write(f"- scope: {what}\n")
     if ask:
         f.write(f"- asked: {ask}\n")

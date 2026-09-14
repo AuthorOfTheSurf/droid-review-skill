@@ -121,11 +121,38 @@ Start a new Claude Code session and run:
 ```
 /droid-review
 /droid-review the auth changes
-/droid-feedback review the user-facing copy: clarity, one name per concept, voice
+/droid-review luna
+/droid-review gemini the auth changes
+/droid-feedback gemini review the user-facing copy: clarity, one name per concept, voice
 ```
 
 Claude reads the SKILL.md, runs the script, triages what comes back, applies
 what's real, and re-checks with the same droid session.
+
+### Model shortcuts
+
+A first word that is exactly one of these picks the model, at the reasoning
+effort you want it to review at. A second word that is exactly an effort level
+overrides it for one run (`/droid-review luna xhigh`). Anything else is the
+focus, so `/droid-review the gemini integration` is a GLM review about Gemini.
+
+| Shortcut | Model | Effort |
+|---|---|---|
+| `glm` (default) | `glm-5.3-flash` | high |
+| `gemini` | `gemini-3.8-flash` | high |
+| `luna` | `gpt-5.6-luna` | max |
+| `auto` | `auto` | none (droid picks) |
+| `fable` | `claude-fable-5.1` | droid's default |
+| `opus` | `claude-opus-5` | droid's default |
+| `astra` | `gpt-6-astra` | droid's default |
+| `sol` | `gpt-5.6-sol` | droid's default |
+| `grok` | `grok-4.6` | droid's default |
+
+Any other model id from `droid exec --help` works as the first word too. The
+script checks the model and effort against that same help output before it
+starts droid, so `gemini max` fails at once with the levels Gemini takes. The
+table lives in `shortcut()` in the script; the family names point at the newest
+model as of droid 0.218.2, so move them when droid ships a newer one.
 
 ### Other agents
 
@@ -144,6 +171,8 @@ droid-review.sh                          # /review, branch vs. detected default 
 droid-review.sh "the payment retry logic" # same, with something to weight
 droid-review.sh --feedback "<ask>"        # plain-words feedback instead of /review
 droid-review.sh --uncommitted
+droid-review.sh "luna the payment retry logic" # a model shortcut first
+droid-review.sh --models                 # list the shortcuts
 droid-review.sh --base origin/main --effort max
 droid-review.sh --checks docs/testing.md
 droid-review.sh --session last "re-check the fixes in HEAD"

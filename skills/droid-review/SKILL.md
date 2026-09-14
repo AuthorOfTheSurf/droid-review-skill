@@ -1,6 +1,7 @@
 ---
 name: droid-review
 description: Second-opinion code review of the current branch from Factory's droid (GLM by default, any droid model), triaged against the code, fixed, and re-checked. Human-invoked, near merge — run only when the user asks for a droid review or to triage one, never on your own initiative. For a review that is not droid's structured code review, use droid-feedback instead.
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] [focus]"
 ---
 
 # droid review → triage → fix → re-check
@@ -23,12 +24,20 @@ is the **droid-feedback** skill, which asks droid in plain words instead.
 ```bash
 .claude/skills/droid-review/droid-review.sh
 .claude/skills/droid-review/droid-review.sh --uncommitted
-.claude/skills/droid-review/droid-review.sh "<what the user wants weighted>"
+.claude/skills/droid-review/droid-review.sh "$ARGUMENTS"
 ```
 
-The positional argument is optional emphasis on top of `/review` — pass the
-user's `$ARGUMENTS` there, and `--model` / `--effort` when they name one. The
-base branch is detected (origin/HEAD, else main/master); `--base` overrides.
+**Pass `$ARGUMENTS` through verbatim, as one argument — do not pick the model
+yourself.** The script reads it: a first word that is exactly a shortcut
+(`luna`, `gemini`, …) or a droid model id picks the model, a second word that
+is exactly an effort level (`high`, `max`, …) overrides that model's level, and
+the rest is optional emphasis on top of `/review`. So `/droid-review luna the
+auth changes` is Luna at its pinned level, weighted toward auth. `--models`
+prints the shortcuts and their levels; an effort the model does not support
+fails before droid runs, so relay that message. Only when the user names a
+model in prose the script cannot read ("use the Gemini one") translate it to
+the shortcut or `--model`. The base branch is detected (origin/HEAD, else
+main/master); `--base` overrides.
 
 **No config file is needed.** droid loads AGENTS.md / CLAUDE.md by itself, and
 the prompt tells it to read that for how the repo is tested and verified. If
@@ -38,8 +47,8 @@ instead.
 The script prints two lines: the markdown file the review was saved to
 (under `.droid-reviews/`, gitignored) and the droid **session id**. Keep the
 session id. A review takes a few minutes; run the script with a long timeout
-or in the background. Default model is `glm-5.3-flash` at reasoning `high`;
-`DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
+or in the background. Default model is `glm` (`glm-5.3-flash` at reasoning
+`high`); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
 
 Non-zero exit means droid did not finish (auth, unknown model, network) —
 report the stderr text to the user rather than reviewing nothing.
