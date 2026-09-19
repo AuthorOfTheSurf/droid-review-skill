@@ -184,8 +184,10 @@ droid-review.sh --help
 
 The positional argument is what you're asking droid for this time: emphasis on
 top of `/review`, the whole ask under `--feedback`, or the re-check instruction
-with `--session`. `DROID_REVIEW_BASE`, `DROID_REVIEW_MODEL` and
-`DROID_REVIEW_EFFORT` set the defaults.
+with `--session`. A `--session` run keeps the model and effort that wrote the
+review, read from the review file's header, unless you name a model.
+`DROID_REVIEW_BASE`, `DROID_REVIEW_MODEL` and `DROID_REVIEW_EFFORT` set the
+defaults.
 
 It prints the file it saved to and the droid session id; paste both into
 whatever you're using to do the triage.
