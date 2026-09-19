@@ -87,9 +87,12 @@ unless the user's standing instruction for the branch says to.
 re-check works even when the id has fallen out of the conversation (a
 compaction, a new day).
 
-This continues the droid session so it re-reads its own findings against the
-fixed code and reports fixed / still open / false positive plus anything new.
-One round trip is enough; do not loop until the reviewer is silent.
+This continues the droid session on the model and effort that wrote the
+review (read from the review file's header), so the reviewer that raised a
+finding is the one that grades the fix. It re-reads its own findings against
+the fixed code and reports fixed / still open / false positive plus anything
+new. Do not name a model on a re-check unless the user asks for a different
+reviewer. One round trip is enough; do not loop until the reviewer is silent.
 
 ## 5. Report
 

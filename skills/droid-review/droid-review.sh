@@ -17,6 +17,10 @@
 #   droid-review.sh --session <id> "re-check the fixes in HEAD"
 #   droid-review.sh --session last        # the newest review's session, by file
 #
+# A continuation runs on the model and effort that wrote the review, read from
+# the review file's header, so the reviewer that raised a finding is the one
+# that grades the fix. Name a model (shortcut, --model, first word) to override.
+#
 # The positional argument is what you are asking droid for this time: emphasis
 # on top of /review, the whole ask under --feedback, or the re-check
 # instruction with --session. Its first word picks the model when it is exactly
@@ -120,6 +124,7 @@ default_base() {
 MODE="review"
 BASE="${DROID_REVIEW_BASE:-}"
 MODEL="${DROID_REVIEW_MODEL:-}"
+NAMED_MODEL=""   # set when the caller named one; a continuation then keeps it
 EFFORT=""
 SCOPE="branch"
 CHECKS=""
@@ -128,7 +133,7 @@ ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)    need "$@"; BASE="$2";    shift 2 ;;
-    --model)   need "$@"; MODEL="$2";   shift 2 ;;
+    --model)   need "$@"; MODEL="$2"; NAMED_MODEL=1; shift 2 ;;
     --effort)  need "$@"; EFFORT="$2";  shift 2 ;;
     --checks)  need "$@"; CHECKS="$2";  shift 2 ;;
     --session) need "$@"; SESSION="$2"; shift 2 ;;
@@ -166,20 +171,49 @@ WORD_EFFORT=""
 if [ -z "$MODEL" ] && [ -n "$ASK" ]; then
   word="${ASK%%[[:space:]]*}"
   if shortcut "$word" >/dev/null || [ -n "$(catalog_entry "$word")" ]; then
-    MODEL="$word"; drop_word "$word"
+    MODEL="$word"; NAMED_MODEL=1; drop_word "$word"
     word="${ASK%%[[:space:]]*}"
     if [ -n "$word" ] && is_effort "$word"; then WORD_EFFORT="$word"; drop_word "$word"; fi
   fi
 fi
 
-# Effort, most specific first: --effort, the word after the model, the
-# shortcut's pinned level, DROID_REVIEW_EFFORT, then droid's per-model default.
+# A continuation keeps the reviewer that wrote the review: every review file's
+# header records the model and effort beside the session id. `last` is the
+# newest file; an id is looked up across the files. A model the caller named
+# wins; a session no file records runs on the default and says so.
+SESSION_EFFORT=""
+if [ -n "$SESSION" ]; then
+  if [ "$SESSION" = "last" ]; then
+    SESSION_FILE="$(ls -t .droid-reviews/*.md 2>/dev/null | head -1 || true)"  # pipefail
+    [ -n "$SESSION_FILE" ] || die "no review under .droid-reviews/ to continue"
+    SESSION="$(sed -n 's/^- session: //p' "$SESSION_FILE" | head -1)"
+    [ -n "$SESSION" ] || die "$SESSION_FILE has no session id"
+  else
+    SESSION_FILE="$(grep -lx -- "- session: $SESSION" $(ls -t .droid-reviews/*.md 2>/dev/null) 2>/dev/null | head -1 || true)"
+  fi
+  if [ -n "$SESSION_FILE" ]; then
+    echo "continuing $SESSION_FILE ($SESSION)" >&2
+    if [ -z "$NAMED_MODEL" ]; then
+      header="$(sed -n 's/^- model: //p' "$SESSION_FILE" | head -1)"  # "<id> (reasoning <level|droid default>)"
+      [ -n "$header" ] || die "$SESSION_FILE has no model line; name one (--model)"
+      MODEL="${header%% *}"
+      level="${header#*(reasoning }"; level="${level%)}"
+      [ "$level" = "droid default" ] || SESSION_EFFORT="$level"
+    fi
+  else
+    echo "no review under .droid-reviews/ records session $SESSION; running on ${MODEL:-glm}" >&2
+  fi
+fi
+
+# Effort, most specific first: --effort, the word after the model, the session's
+# level, the shortcut's pinned level, DROID_REVIEW_EFFORT, then droid's per-model
+# default.
 PINNED=""
 if spec="$(shortcut "${MODEL:-glm}")"; then
   MODEL="${spec%% *}"
   [ "$spec" = "$MODEL" ] || PINNED="${spec#* }"
 fi
-EFFORT="${EFFORT:-${WORD_EFFORT:-${PINNED:-${DROID_REVIEW_EFFORT:-}}}}"
+EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${PINNED:-${DROID_REVIEW_EFFORT:-}}}}}"
 
 if [ -n "$CATALOG" ]; then
   supported="$(catalog_entry "$MODEL")"
@@ -207,16 +241,6 @@ if [ -n "$CHECKS" ]; then
   elif [ -f "$ORIG_PWD/$CHECKS" ]; then CHECKS="$ORIG_PWD/$CHECKS"
   else die "checks file '$CHECKS' not found"
   fi
-fi
-
-# `--session last`: the id is in the newest review file's header, so the
-# review → triage → re-check loop survives a lost conversation context.
-if [ "$SESSION" = "last" ]; then
-  LAST="$(ls -t .droid-reviews/*.md 2>/dev/null | head -1 || true)"  # pipefail
-  [ -n "$LAST" ] || die "no review under .droid-reviews/ to continue"
-  SESSION="$(sed -n 's/^- session: //p' "$LAST" | head -1)"
-  [ -n "$SESSION" ] || die "$LAST has no session id"
-  echo "continuing $LAST ($SESSION)" >&2
 fi
 
 OUT_DIR=".droid-reviews"
