@@ -1,93 +1,83 @@
 # droid-review
 
-A second-opinion loop: ask [Factory's `droid` CLI](https://docs.factory.ai/droid-cli/quickstart)
-to look at your branch non-interactively, have your main coding agent triage
-what comes back against the actual code, fix what's real, then re-check with
-the same droid session so it tells you what's fixed, what's still open, and
-what's new.
+Ask [Factory's `droid` CLI](https://docs.factory.ai/droid-cli/quickstart) to review your branch in the background, and give that feedback to your main coding agent to triage. Your main agent should fix what needs fixing, and then request a follow up review which should be fast to complete.
 
-No copy-pasting a review between two chat windows. One command runs the loop.
+Claude Code has been my main daily driver since Sept 2025 and I love it, it's excellent. Droid has been my backup hardness and coding agent. It's also excellent. I find that it has a different approach compared to Claude Code (more senior engineer style, always looking for existing tests and verification available), and importantly it provides access to pretty much every model across OpenAI (GPT), Google (Gemini), Z.ai (GLM), xAI (Grok), and open source models
 
-Two skills, because there are two different things to ask for:
+Crucially, I do not believe that harnesses and models can effectively code-review themselves. You can clear context and get some results. But overall I believe that same harness (e.g. Claude Code) and same model provider (e.g. Fable, Opus, Sonnet, all by Anthropic) cannot effectively code-review themselves. This is because I believe they have the same approach to the tasks at hand, and so they will step through the problems and "think" about them in a similar way as the agent that wrote the code. _Therefore I believe that the best way to get an agentic code review and second-opinon is by using a different harness + different model._
+
+You will want the harness to be made by smart people (like the [Factory.ai](https://factory.com/) team that makes `droid`) and you will want the model to be strong, and fast, and also made by smart people. I find GLM models best in terms of this tradeoff. I've also been using Gemini (3.8 at time of writing) as a smart alternative as well. Droid is also super cheap to use. I can request code review and write bits of code all month long on my $20/mo plan
+
+### Usage
+
+```sh
+/droid-review
+# Or with options
+/droid-review [glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] [focus]
+```
+
+What happens:
+- Your main agent (e.g. Claude) invokes the skill
+- It will request `droid` to do a review in the background, and await the results
+- It will receive the code review results within a couple minutes
+- It will triage (prioritize, accept, reject) each point of feedback
+- Your main agent will do the fixes and then request re-review from the same droid session, which re-uses the session cache resulting in a fast re-review (generally under 30-60 seconds)
+- Done. 
+
+Benefits:
+- Review was solicited from a different coding harness and model resulting in a true second opinion
+    - In my experience, GLM (5.2 and now 5.3 Flash) have been able to find issues in Claude Code's best models, and serve as nice secondary opinions. 
+- Time
+- No copy-pasting a review between two chat windows. One command runs the loop
+- Easy to do on mobile
+- Easy to enable automatically via `CLAUDE.md` and/or your prompt (e.g. "Fix this bug and solicit /droid-review") — so your agent will go off for longer, and come back with work that you can be more confident in
+- In the short and long run I believe that only agents and verification tests will be able to review code correctness. Human review has a place, but the first step is automation (tests, guardrails) and further leveraging agentic coding skills (`/droid-review` skill, using different harness+model to get a review)
+
+### The Skills
 
 | | |
 |---|---|
-| **`/droid-review`** | droid's own `/review` — a structured code review: severity, file:line, the scenario that breaks. Triage is confirmed / pre-existing / false positive / nit, then fix and re-check. |
-| **`/droid-feedback`** | anything else, in your own words — the copy, the API shape, "is this approach sane". Prose back, no imposed format. Triage separates fact from taste, and taste stays yours. |
+| **`/droid-review`** | wraps droid's own `/review` skill. Receive a structured code review: severity, file:line, the scenario that breaks. Triage is confirmed / pre-existing / false positive / nit, then fix and re-check. |
+| **`/droid-feedback`** | an open-ended prompt, literally ask for feedback like "is this approach sane?". Receive prose back, no imposed format. Use when you want feedback, not code review |
 
-## When to use it
+### When to use it
 
-Near merge, on a branch you believe is code complete — the point where you'd
-otherwise open a PR and hope someone reads it.
+Near merge, on a branch you believe is code complete
 
-What makes it worth the round trip is that the reviewer is *different in two
-ways at once*: a different model, running in a different harness, with none of
-your session's context or its assumptions. In practice that catches real bugs
-in code written by strong models — Fable, GPT-5.6 Sol — because the reviewer
-isn't invested in the plan that produced them and has to rediscover the intent
-from the diff.
+### How to get the most out of it
 
-Both are human-invoked by design. The skills tell your agent not to run them on
-its own initiative.
+The one thing `droid` needs from your repo is *how to check things* — the tests, the linter, the typechecker, the e2e suite, whatever drives the app.
 
-## No config files
+The best way to provide this info is in **AGENTS.md / CLAUDE.md**, which droid always loads. In general it is good practice to list out your verification layer here; it helps humans and it helps agents
 
-The one thing droid needs from your repo is *how to check things* — the tests,
-the linter, the typechecker, the e2e suite, whatever drives the app. It gets
-that from **AGENTS.md / CLAUDE.md**, which droid loads by itself, and the prompt
-tells it to go read it.
-
-So there's nothing to install per repo. If your instructions file doesn't
-document how to verify the project, that's worth fixing for every agent that
-touches it, not just this one — a table of *command → what it proves → what it
-costs* is the single highest-leverage thing in an AGENTS.md, because it's the
-difference between a reviewer that runs your tests and one that guesses from
-the diff.
-
-If that list genuinely lives elsewhere in your repo, point at it:
+If the instructions for verification live somewhere else in your repo, point at it. This will help with efficiency rather than leaving it up to `droid` to figure it out
 
 ```bash
 droid-review.sh --checks docs/testing.md
 ```
 
-## What it does in your repo
+### What droid does in your repo
 
-The reviewer runs at droid's `--auto medium`, which means that inside your repo
+- The reviewer runs at droid's `--auto medium`, which means that inside your repo
 it can run your build and test suites, install packages, make network requests,
-and commit locally. That's deliberate — a finding backed by a check it actually
-ran beats one read off the diff. The script removes droid's `ApplyPatch` tool so
-it can't edit your files, and the prompt tells it not to commit.
+and commit locally. 
+- This is deliberate, finding should be backed by checks, and not just reading the diff
+- The script removes droid's `ApplyPatch` tool so it can't edit your files, and the prompt tells it not to commit
+- If that's more autonomy than you want, drop `--auto medium` from the `DROID_ARGS` array in the script; droid then runs read-only and reviews from the diff alone. Not recommended, but the option is there for you
 
-If that's more autonomy than you want, drop `--auto medium` from the
-`DROID_ARGS` array in the script; droid then runs read-only and reviews from the
-diff alone.
-
-Tested against droid CLI 0.213.0. droid ignores unknown flags silently, so on a
-much newer version, confirm the tool guard still bites:
-
-```bash
-droid exec --auto medium --remove-tools ApplyPatch --list-tools   # ApplyPatch: blocked override
-```
-
-## Requirements
+### Requirements
 
 - **The `droid` CLI**, installed and authenticated: <https://docs.factory.ai/droid-cli/quickstart>.
   You need a Factory account with access to a model — the script defaults to
   `glm-5.3-flash`, but any model your plan can run works (`--model`).
-- **git** and **python3** (the script parses droid's JSON output with it).
-- **A primary coding agent with its own subscription** to do the triage/fix
-  step. This repo packages that step as two
-  [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills).
+- **git** and **python3** (the script parses droid's JSON output with it)
+- **A primary coding agent with its own subscription** to do the triage/fix step. This is generally the same agent that did the implementation. I recommend [Claude Code]( https://claude.ai/ ) but alternatives like Cursor, Codex, Pi, etc. work too
 
-A run takes anywhere from ~40s to ~8 minutes depending on model, branch size,
-and how many checks it decides to run, and it bills against your Factory plan.
-Run it with a long timeout or in the background.
+A run takes anywhere from ~40s to ~8 minutes depending on model, branch size, and how many checks it decides to run, and it bills against your Factory plan. Your agent should run it in the background automatically. It should be run in the background, or at minimum with a large timeout.
 
-## Install
+### Install
 
-Install both skills together — `droid-feedback` is a thin wrapper around the
-script in `droid-review`, so they share one implementation and can't drift
-apart.
+Install both skills together — `droid-feedback` is a thin wrapper around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
 
 Per project:
 
@@ -104,7 +94,7 @@ mkdir -p ~/.claude/skills
 cp -r skills/droid-review skills/droid-feedback ~/.claude/skills/
 ```
 
-Or, recommended, symlink them from a clone of this repo, so a `git pull` (or an
+*My recommendation*, symlink them from a clone of this repo, so a `git pull` (or an
 edit here) reaches every project with nothing to copy:
 
 ```bash
@@ -119,25 +109,13 @@ A global install still writes reviews to `.droid-reviews/` in whichever repo
 you run it from, so add that to each repo's `.gitignore` or to your global git
 excludes file.
 
-Start a new Claude Code session and run:
-
-```
-/droid-review
-/droid-review the auth changes
-/droid-review luna
-/droid-review gemini the auth changes
-/droid-feedback gemini review the user-facing copy: clarity, one name per concept, voice
-```
-
-Claude reads the SKILL.md, runs the script, triages what comes back, applies
-what's real, and re-checks with the same droid session.
+Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review` and `/droid-feedback` autocomplete and be available
 
 ### Model shortcuts
 
-A first word that is exactly one of these picks the model, at the reasoning
-effort you want it to review at. A second word that is exactly an effort level
-overrides it for one run (`/droid-review luna xhigh`). Anything else is the
-focus, so `/droid-review the gemini integration` is a GLM review about Gemini.
+- First parameter allows optional specification of a model, e.g. (glm = GLM 5.3 Flash)
+- Second parameter is an effort level overrides of the default effort level for one run (`/droid-review luna xhigh`)
+- Anything else is the focus, so `/droid-review the gemini integration` is a GLM review about Gemini
 
 | Shortcut | Model | Effort |
 |---|---|---|
@@ -157,15 +135,7 @@ starts droid, so `gemini max` fails at once with the levels Gemini takes. The
 table lives in `shortcut()` in the script; the family names point at the newest
 model as of droid 0.218.2, so move them when droid ships a newer one.
 
-### Other agents
-
-The loop is a bash script plus two markdown playbooks, so nothing here is
-Claude-specific except the packaging. For Codex, Gemini CLI, or anything else:
-drop `skills/` in the repo, point the agent at the SKILL.md files, and ask it to
-run the loop — adapting the paths and the invocation is a small enough job that
-the agent can do it for you.
-
-## Just the script
+### Just the script
 
 `skills/droid-review/droid-review.sh` runs standalone from any shell:
 
@@ -184,7 +154,9 @@ droid-review.sh --help
 
 The positional argument is what you're asking droid for this time: emphasis on
 top of `/review`, the whole ask under `--feedback`, or the re-check instruction
-with `--session`. A `--session` run keeps the model and effort that wrote the
+with `--session`
+
+A `--session` run keeps the model and effort that wrote the
 review, read from the review file's header, unless you name a model.
 `DROID_REVIEW_BASE`, `DROID_REVIEW_MODEL` and `DROID_REVIEW_EFFORT` set the
 defaults.
