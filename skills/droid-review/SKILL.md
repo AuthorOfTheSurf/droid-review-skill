@@ -1,7 +1,7 @@
 ---
 name: droid-review
 description: Second-opinion code review of the current branch from Factory's droid (GLM by default, any droid model), triaged against the code, fixed, and re-checked. Human-invoked, near merge — run only when the user asks for a droid review or to triage one, never on your own initiative. For a review that is not droid's structured code review, use droid-feedback instead.
-argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] [focus]"
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] [focus]"
 ---
 
 # droid review → triage → fix → re-check

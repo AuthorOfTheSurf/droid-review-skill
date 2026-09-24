@@ -11,7 +11,7 @@ For your main coding agent AND your backup/review agent, you will want harness (
 ```sh
 /droid-review
 # Or with options
-/droid-review [glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] [focus]
+/droid-review [glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] [focus]
 ```
 
 What happens:
@@ -119,19 +119,24 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 |---|---|---|
 | `glm` (default) | `glm-5.3-flash` | high |
 | `gemini` | `gemini-3.8-flash` | high |
-| `luna` | `gpt-5.6-luna` | max |
+| `luna` | `gpt-6-luna` | max |
 | `auto` | `auto` | none (droid picks) |
 | `fable` | `claude-fable-5.1` | droid's default |
-| `opus` | `claude-opus-5` | droid's default |
+| `opus` | `claude-opus-5-5` | droid's default |
 | `astra` | `gpt-6-astra` | droid's default |
-| `sol` | `gpt-5.6-sol` | droid's default |
-| `grok` | `grok-4.6` | droid's default |
+| `sol` | `gpt-6-sol` | droid's default |
+| `grok` | `grok-4.7` | droid's default |
+| `qwen` | `qwen3.8-max` | droid's default |
+| `kimi` | `kimi-k3` | droid's default |
+| `deepseek` | `deepseek-v4-pro` | droid's default |
 
-Any other model id from `droid exec --help` works as the first word too. The
-script checks the model and effort against that same help output before it
-starts droid, so `gemini max` fails at once with the levels Gemini takes. The
+Any other model id droid accepts works as the first word too (`droid exec -m x
+--list-tools` lists them all; `droid exec --help` lags behind). The script
+checks the model before it starts droid, and the effort against the levels
+`droid exec --help` gives for that model, so `gemini max` fails at once with the
+levels Gemini takes; a model the help does not list yet runs unchecked. The
 table lives in `shortcut()` in the script; the family names point at the newest
-model as of droid 0.218.2, so move them when droid ships a newer one.
+model as of droid 0.226.2, so move them when droid ships a newer one.
 
 ### Just the script
 

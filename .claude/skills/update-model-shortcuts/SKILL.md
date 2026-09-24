@@ -17,6 +17,7 @@ recommend, and change only what they pick.
 git pull
 droid --version
 droid exec --help
+droid exec -m x --list-tools   # "Invalid model", then every id droid accepts
 skills/droid-review/droid-review.sh --models
 ```
 
@@ -25,9 +26,16 @@ whether to update droid first.
 
 ## 2. Compare
 
-Read `Available Models` and `Model details` from the help output against
-`shortcut()` in the script. Report, in one table (shortcut → current → candidate
-→ why):
+The ids come from the `--list-tools` error, not the help: `droid exec --help`
+lags behind it, missing new models (Opus 5.5 and the GPT-6 family went a
+release or more without appearing) and still listing retired ones. The help's
+`Model details` is still the only place efforts are given; for a model it does
+not list, ask the user to read the levels from `/model` in interactive droid.
+Do not probe with a real run: droid runs an unsupported effort without
+complaint, so a reply proves nothing.
+
+Read those ids against `shortcut()` in the script. Report, in one table
+(shortcut → current → candidate → why):
 
 - **A newer model in a shortcut's family.** Do not assume the listing order is
   newest first: it is not (`gemini-3.1-pro-preview` sits above
@@ -54,14 +62,16 @@ added or removed. Then verify every shortcut against the real catalog without
 running a review:
 
 ```bash
-help="$(droid exec --help)"
+ids="$(droid exec -m x --list-tools 2>&1 >/dev/null | tr ',' '\n' | awk '{print $1}')"
 skills/droid-review/droid-review.sh --models | while read -r s id effort; do
-  grep -qE "^ +$id +" <<<"$help" && echo "$s $id ok" || echo "$s $id MISSING"
+  grep -qxF "$id" <<<"$ids" && echo "$s $id ok" || echo "$s $id MISSING"
 done
 ```
 
-Check each pinned effort against that model's `supported:` list by eye; the
-script enforces it at run time, but a bad pin should not reach a user first.
+Check each pinned effort against that model's `supported:` list by eye, or
+against what the user read from `/model` when the help does not list it; the
+script enforces it at run time only for models the help details, so a bad pin
+should not reach a user first.
 
 ## 4. Commit
 

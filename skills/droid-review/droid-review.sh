@@ -8,7 +8,7 @@
 #   droid-review.sh --feedback "<ask>"    # not /review: ask droid for anything, in its own words
 #   droid-review.sh --base origin/main
 #   droid-review.sh --uncommitted         # only the working tree
-#   droid-review.sh luna                  # a shortcut: gpt-5.6-luna at reasoning max
+#   droid-review.sh luna                  # a shortcut: gpt-6-luna at reasoning max
 #   droid-review.sh "gemini the auth changes"   # shortcut, then the emphasis
 #   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
 #   droid-review.sh --model glm-5.2 --effort max
@@ -27,7 +27,8 @@
 # a shortcut (--models) or a droid model id, and the word after that sets the
 # reasoning effort when it is exactly an effort level. --model wins over both.
 # Without a model the default is glm. Efforts are checked against what
-# `droid exec --help` says each model supports, before droid runs.
+# `droid exec --help` says each model supports, before droid runs (a model the
+# help does not list yet runs unchecked).
 #
 # Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
 # (the effort applies only when the model has no pinned level).
@@ -57,20 +58,23 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 
 # Shortcuts: name → "model [effort]". A pinned effort is the level that model
 # should review at; without one, droid's per-model default applies. The family
-# names (fable, opus, astra, sol, grok) point at the newest model in the family
-# as of droid 0.218.2 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus astra sol grok"
+# names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
+# model in the family as of droid 0.226.2 — move them when droid ships a newer one.
+SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash high" ;;
     gemini) echo "gemini-3.8-flash high" ;;
-    luna)   echo "gpt-5.6-luna max" ;;
+    luna)   echo "gpt-6-luna max" ;;
     auto)   echo "auto" ;;
     fable)  echo "claude-fable-5.1" ;;
-    opus)   echo "claude-opus-5" ;;
+    opus)   echo "claude-opus-5-5" ;;
     astra)  echo "gpt-6-astra" ;;
-    sol)    echo "gpt-5.6-sol" ;;
-    grok)   echo "grok-4.6" ;;
+    sol)    echo "gpt-6-sol" ;;
+    grok)   echo "grok-4.7" ;;
+    qwen)   echo "qwen3.8-max" ;;
+    kimi)   echo "kimi-k3" ;;
+    deepseek) echo "deepseek-v4-pro" ;;
     *) return 1 ;;
   esac
 }
@@ -79,15 +83,19 @@ is_effort() {
   return 1
 }
 
-# droid's model catalog, read from `droid exec --help`: one "<id> <efforts>"
-# line per model, efforts comma-separated, "-" for no reasoning setting and "?"
-# when the help gives no details (custom models). Empty if the format changed,
-# in which case nothing is validated and droid gets the last word.
+# droid's model catalog: one "<id> <efforts>" line per model, efforts
+# comma-separated, "-" for no reasoning setting and "?" when droid gives no
+# details. The ids are the ones `droid exec` accepts, which it lists when handed
+# an unknown one; `droid exec --help` lags behind that list (new models missing,
+# retired ones kept) but is the only place efforts are given. Empty if both
+# formats changed, in which case nothing is validated and droid gets the last word.
 catalog() {
-  droid exec --help 2>/dev/null | python3 -c '
-import re, sys
+  HELP="$(droid exec --help 2>/dev/null || true)" \
+  ACCEPTED="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)" \
+  python3 -c '
+import os, re
 section, ids, details = None, [], {}
-for line in sys.stdin.read().splitlines():
+for line in os.environ["HELP"].splitlines():
     if line and not line[0].isspace():
         section = line.strip()
         continue
@@ -100,8 +108,19 @@ for line in sys.stdin.read().splitlines():
         if m:
             efforts = m.group(3).replace(" ", "") if m.group(2) == "Yes" else "-"
             details[m.group(1)] = efforts
-for model_id, name in ids:
-    print(model_id, details.get(name, "?"))
+efforts = {model_id: details.get(name, "?") for model_id, name in ids}
+accepted, listing = [], False
+for line in os.environ["ACCEPTED"].splitlines():
+    if re.match(r"Available (built-in|custom) models:$", line):
+        listing = True
+    elif listing and line.strip():
+        for entry in line.split(","):
+            model_id = entry.split()[0] if entry.split() else ""
+            if model_id and model_id not in accepted:
+                accepted.append(model_id)
+        listing = False
+for model_id in accepted or [model_id for model_id, _ in ids]:
+    print(model_id, efforts.get(model_id, "?"))
 '
 }
 
@@ -142,7 +161,7 @@ while [ $# -gt 0 ]; do
     --models)
       for s in $SHORTCUTS; do
         set -- $(shortcut "$s")
-        printf '%-7s %-18s %s\n' "$s" "$1" "${2:-droid default}"
+        printf '%-9s %-18s %s\n' "$s" "$1" "${2:-droid default}"
       done
       exit 0 ;;
     -h|--help) usage; exit 0 ;;
@@ -218,7 +237,7 @@ EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${PINNED:-${DROID_REVIEW_EFFO
 if [ -n "$CATALOG" ]; then
   supported="$(catalog_entry "$MODEL")"
   [ -n "$supported" ] || \
-    die "droid has no model '$MODEL' (shortcuts: $SHORTCUTS; every id: droid exec --help)"
+    die "droid has no model '$MODEL' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"
   if [ -n "$EFFORT" ]; then
     case "$supported" in
       -) die "$MODEL has no reasoning effort setting; drop '$EFFORT'" ;;

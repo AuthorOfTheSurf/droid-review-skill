@@ -1,7 +1,7 @@
 ---
 name: droid-feedback
 description: Ask Factory's droid for a second opinion on the branch in plain words — the copy, the API shape, a design question, anything that is not a structured code review — then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
-argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok] [effort] <ask>"
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] <ask>"
 ---
 
 # droid feedback → weigh → propose → re-check
