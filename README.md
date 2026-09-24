@@ -2,11 +2,9 @@
 
 Ask [Factory's `droid` CLI](https://docs.factory.ai/droid-cli/quickstart) to review your branch in the background, and give that feedback to your main coding agent to triage. Your main agent should fix what needs fixing, and then request a follow up review which should be fast to complete.
 
-Claude Code has been my main daily driver since Sept 2025 and I love it, it's excellent. Droid has been my backup hardness and coding agent. It's also excellent. I find that it has a different approach compared to Claude Code (more senior engineer style, always looking for existing tests and verification available), and importantly it provides access to pretty much every model across OpenAI (GPT), Google (Gemini), Z.ai (GLM), xAI (Grok), and open source models
+I do not believe that harnesses and models can effectively code-review themselves. This is because I believe they have the same approach to the tasks at hand, and so they will step through the problems and "think" about them in a similar way as the agent that wrote the code. *Therefore I believe that the best way to get an agentic code review and second-opinon is by using a different harness + different model.*
 
-Crucially, I do not believe that harnesses and models can effectively code-review themselves. You can clear context and get some results. But overall I believe that same harness (e.g. Claude Code) and same model provider (e.g. Fable, Opus, Sonnet, all by Anthropic) cannot effectively code-review themselves. This is because I believe they have the same approach to the tasks at hand, and so they will step through the problems and "think" about them in a similar way as the agent that wrote the code. _Therefore I believe that the best way to get an agentic code review and second-opinon is by using a different harness + different model._
-
-You will want the harness to be made by smart people (like the [Factory.ai](https://factory.com/) team that makes `droid`) and you will want the model to be strong, and fast, and also made by smart people. I find GLM models best in terms of this tradeoff. I've also been using Gemini (3.8 at time of writing) as a smart alternative as well. Droid is also super cheap to use. I can request code review and write bits of code all month long on my $20/mo plan
+For your main coding agent AND your backup/review agent, you will want harness (Claude Code / Droid) and model (Opus, Fable / GLM, Gemini) combinations that are made by smart people that are competitive and care a lot about doing a good job. I believe my stack of CC Opus 5.5 + Droid w/ GLM 5.3 Flash/Gemini 3.8 Flash satisfies this requirement 
 
 ### Usage
 
