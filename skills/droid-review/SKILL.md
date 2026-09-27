@@ -1,7 +1,7 @@
 ---
 name: droid-review
 description: Second-opinion code review of the current branch from Factory's droid (GLM by default, any droid model), triaged against the code, fixed, and re-checked. Human-invoked, near merge — run only when the user asks for a droid review or to triage one, never on your own initiative. For a review that is not droid's structured code review, use droid-feedback instead.
-argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] [focus]"
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek|a,b,c] [effort] [focus]"
 ---
 
 # droid review → triage → fix → re-check
@@ -52,6 +52,32 @@ or in the background. Default model is `glm` (`glm-5.3-flash` at reasoning
 
 Non-zero exit means droid did not finish (auth, unknown model, network) —
 report the stderr text to the user rather than reviewing nothing.
+
+While it runs, droid's progress streams into a `.log` beside the review file
+(the script prints `live log: <path>` on stderr): one line per tool call with
+elapsed time, turn, tool and target. `tail` it to see what the reviewer is doing.
+
+### Several models at once
+
+When the user asks for more than one reviewer (`/droid-review gemini,luna,grok`
+or "review it on glm and gemini"), fan out in one command:
+
+```bash
+.claude/skills/droid-review/droid-review.sh --models glm,gemini,grok "<focus>"
+.claude/skills/droid-review/droid-review.sh "glm,gemini,grok <focus>"   # same, from $ARGUMENTS
+```
+
+Each model runs in parallel at its shortcut's default effort (`--effort` applies
+to all). `--models` alone still lists the shortcuts. Do not put a model word in
+the focus as well; the script refuses that. Run it in the background: stderr
+has one line per state change (started + log path, a new turn at most every
+30s per model, `ok`/`FAILED` with the result path); read that output to follow
+along, and `tail` a model's `.log` for detail. stdout ends with one
+`model<TAB>status<TAB>path<TAB>session` line per model, then the index file
+(`.droid-reviews/<stamp>-<branch>-multi.md`, a table of every run). Exit 0 when
+at least one model finished; relay each failure's line. Triage each review as
+below, merging findings several reviewers agree on into one verdict (note who
+raised it). A re-check is per model: `--session <that model's id>`, not `last`.
 
 ## 2. Triage — every finding gets a verdict
 
