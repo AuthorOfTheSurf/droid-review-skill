@@ -266,7 +266,22 @@ OUT_DIR=".droid-reviews"
 mkdir -p "$OUT_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BRANCH="$(git branch --show-current | tr '/' '-')"
-OUT="$OUT_DIR/${STAMP}-${BRANCH:-detached}.md"
+# The model is in the name so parallel runs on different models are told apart at a
+# glance; the file itself is claimed just before writing (see claim_out below).
+MODEL_TAG="$(printf '%s' "${MODEL:-glm}" | tr -c 'A-Za-z0-9.-' '-')"
+OUT_BASE="$OUT_DIR/${STAMP}-${BRANCH:-detached}-${MODEL_TAG}"
+OUT="$OUT_BASE.md"
+
+# Claim OUT atomically (noclobber), adding -2, -3 ... if a run that started the same
+# second with the same model already took it. Without this, parallel runs overwrote
+# each other's reviews.
+claim_out() {
+  local n=2
+  while ! ( set -C; : > "$OUT" ) 2>/dev/null; do
+    OUT="$OUT_BASE-$n.md"
+    n=$((n + 1))
+  done
+}
 
 if [ "$SCOPE" = "uncommitted" ]; then
   WHAT="the uncommitted changes in the working tree"
@@ -358,6 +373,7 @@ droid "${DROID_ARGS[@]}" "$PROMPT" > "$JSON"
 STATUS=$?
 set -e
 
+claim_out
 if ! python3 - "$JSON" "$OUT" "$MODEL" "$EFFORT" "$WHAT" "$MODE" "$ASK" <<'PY'
 import json, sys, datetime
 raw, out, model, effort, what, mode, ask = sys.argv[1:8]
@@ -384,6 +400,6 @@ with open(out, "w") as f:
 print(out)
 print(d.get("session_id") or "")
 PY
-then exit 1; fi
+then rm -f "$OUT"; exit 1; fi
 
 exit "$STATUS"
