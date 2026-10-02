@@ -438,7 +438,7 @@ fan_out() {
           say "$i" "ok  $(elapsed "$now")  ${INFO[i]}  ${RESULT[i]}"
         else
           STATE[i]="failed"
-          INFO[i]="$(grep -v '^[[:space:]]*$' "$tmpd/$i.err" | tail -1 | cut -c1-300)"
+          INFO[i]="$(grep -v '^[[:space:]]*$' "$tmpd/$i.err" | tail -1 | cut -c1-300 || true)"
           [ -n "${INFO[i]}" ] || INFO[i]="exit $rc"
           say "$i" "FAILED  $(elapsed "$now")  ${INFO[i]}"
         fi
