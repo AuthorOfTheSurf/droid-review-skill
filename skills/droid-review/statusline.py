@@ -29,6 +29,7 @@ put your old command back, to undo.
 import json
 import os
 import re
+import shlex
 import statistics
 import subprocess
 import sys
@@ -253,13 +254,14 @@ def main(argv):
         data = {}
     # Anything after -- is the status line you already had: run it on the same
     # input and print it first, so these rows stack under it.
-    # The shell that ran this already split and unquoted it: run those words as
-    # they are. One word is a whole command line ("-- 'python3 x.py'"): shell it.
+    # The shell that ran this already split and unquoted the words: quote them
+    # again and hand them back to a shell, so quoting survives and a leading
+    # VAR=value still sets a variable. One word is a whole command line already.
     if "--" in argv:
         cmd = argv[argv.index("--") + 1:]
         if cmd:
             try:
-                r = subprocess.run(cmd[0] if len(cmd) == 1 else cmd, shell=len(cmd) == 1, input=raw,
+                r = subprocess.run(cmd[0] if len(cmd) == 1 else shlex.join(cmd), shell=True, input=raw,
                                    capture_output=True, text=True, timeout=5)
                 if r.stdout.strip():
                     sys.stdout.write(r.stdout if r.stdout.endswith("\n") else r.stdout + "\n")

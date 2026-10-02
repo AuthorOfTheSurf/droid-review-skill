@@ -236,6 +236,10 @@ class Command(unittest.TestCase):
             r = self.run_script(json.dumps({"workspace": {"current_dir": d}}),
                                 "--", 'echo "one string"; echo two')   # a whole command line
             self.assertEqual(r.stdout, "one string\ntwo\n")
+            r = self.run_script(json.dumps({"workspace": {"current_dir": d}}),   # leading VAR=value
+                                "--", "PREV_VAR=set", sys.executable, "-c",
+                                'import os; print("PREV", os.environ["PREV_VAR"])')
+            self.assertEqual(r.stdout, "PREV set\n")
 
     def test_outside_a_repo_with_reviews_prints_only_the_previous_line(self):
         with tempfile.TemporaryDirectory() as d:
