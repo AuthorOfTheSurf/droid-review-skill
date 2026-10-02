@@ -149,6 +149,8 @@ droid-review.sh --feedback "<ask>"        # plain-words feedback instead of /rev
 droid-review.sh --uncommitted
 droid-review.sh "luna the payment retry logic" # a model shortcut first
 droid-review.sh --models                 # list the shortcuts
+droid-review.sh --models glm,gemini,grok "the auth changes"   # all three, in parallel
+droid-review.sh "glm,gemini the auth changes"                 # same fan-out, as the first word
 droid-review.sh --base origin/main --effort max
 droid-review.sh --checks docs/testing.md
 droid-review.sh --session last "re-check the fixes in HEAD"
@@ -165,7 +167,18 @@ review, read from the review file's header, unless you name a model.
 defaults.
 
 It prints the file it saved to and the droid session id; paste both into
-whatever you're using to do the triage.
+whatever you're using to do the triage. While droid works, its progress streams
+into a `.log` of the same name (one line per tool call: elapsed, turn, tool,
+target), so `tail -f` shows what it is doing.
+
+**Several models.** `--models a,b,c` (or a comma list as the first word) runs
+the same ask on each model in parallel, each at its shortcut's effort. On a
+terminal, stderr shows a board redrawn in place, one line per model; elsewhere
+(an agent's shell, CI) it prints one line per state change. stdout gets
+`model<TAB>status<TAB>path<TAB>session` per model and, last, an index file
+`.droid-reviews/<stamp>-<branch>-multi.md` tabling status, time, words, session
+and result for each. Exit 0 if any model succeeded; Ctrl-C stops the rest and
+keeps what finished. `--models` with no list still prints the shortcuts.
 
 ## License
 

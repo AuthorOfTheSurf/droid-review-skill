@@ -1,7 +1,7 @@
 ---
 name: droid-feedback
 description: Ask Factory's droid for a second opinion on the branch in plain words — the copy, the API shape, a design question, anything that is not a structured code review — then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
-argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] <ask>"
+argument-hint: "[glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek|a,b,c] [effort] <ask>"
 ---
 
 # droid feedback → weigh → propose → re-check
@@ -52,7 +52,19 @@ models — `gemini` for language and copy work, the default `glm` for
 code-shaped questions. Ask if it matters and they have not said.
 
 The script prints the saved markdown file and the droid **session id**; keep
-the id. Everything droid-review's script accepts works here too (`--base`,
+the id. droid's progress streams into a `.log` beside the result while it runs
+(`live log: <path>` on stderr) — `tail` it to see what droid is doing.
+
+**Several models at once.** For the same ask on more than one model
+(`/droid-feedback gemini,luna,grok <ask>`), pass the comma list as the first
+word or with `--models gemini,luna,grok "<ask>"`. They run in parallel, each at
+its shortcut's default effort, and the ask must not also start with a model
+word. Run it in the background and read its output: stderr has a line per
+state change (started with the log path, turns at most every 30s, `ok`/`FAILED`
+with the result path); stdout ends with `model<TAB>status<TAB>path<TAB>session`
+per model and the index file `.droid-reviews/<stamp>-<branch>-multi.md` last.
+Exit 0 when at least one model finished. Weigh each answer as in step 2, and
+say where the models agree and disagree. `--models` alone lists the shortcuts. Everything droid-review's script accepts works here too (`--base`,
 `--uncommitted`, `--effort`, `--checks`, `--session`); `--help` prints them.
 
 ## 2. Weigh what comes back — do not just apply it
