@@ -2,9 +2,9 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ◐ droid · review   · glm-5.3-flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
-    ◐ droid · review 2 · gemini-3.8-flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-    ✓ droid · review   · gpt-6-luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+    ◐ droid · review   · GLM-5.3-Flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
+    ◐ droid · review 2 · Gemini 3.8 Flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+    ✓ droid · review   · GPT-6 Luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the last line of its .log (turn and
@@ -218,11 +218,12 @@ def rows(folder, now, columns):
             label += " %d" % m["round"]   # a re-check: short, and timed against re-checks
         return label
     lwidth = max(len(label_of(m)) for m in shown)
-    width = max(len(m.get("model") or "?") + len(" " + m["effort"] if m.get("effort") else "") for m in shown)
+    name = lambda m: m.get("model_name") or m.get("model") or "?"   # droid's display name, else the id
+    width = max(len(name(m)) + len(" " + m["effort"] if m.get("effort") else "") for m in shown)
     for m in shown:
         status = m["_status"]
         label = label_of(m)
-        model = m.get("model") or "?"
+        model = name(m)
         effort = (" " + m["effort"]) if m.get("effort") else ""
         who = "droid%s · %s%s%s%s · %s%s%s%s%s%s" % (GREY, RESET, label, " " * (lwidth - len(label)), GREY,
                                                        RESET + TEAL, model,
@@ -231,7 +232,7 @@ def rows(folder, now, columns):
             if hist is None:
                 hist = history(folder, runs)
             elapsed = since(m.get("started"), now) or 0
-            past = hist.get((model, (m.get("round") or 1) > 1)) or []
+            past = hist.get((m.get("model"), (m.get("round") or 1) > 1)) or []   # by id, not name
             estimate = statistics.median(past) if past else None
             timing = clock(elapsed) + (GREY + " / ~" + clock(estimate) + RESET if estimate else "")
             _, last = log_ends(os.path.join(folder, m["_name"] + ".log"))

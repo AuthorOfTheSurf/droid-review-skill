@@ -159,6 +159,17 @@ class StatusLine(unittest.TestCase):
         self.assertIn("/ ~7:30", rows[0])   # first rounds: median of 300 and 600
         self.assertIn("/ ~1:00", rows[1])   # re-checks: 60
 
+    def test_shows_droids_display_name_and_times_by_id(self):
+        self.f.run("ok", status="ok", model_name="GPT-6.1 Sol", model="gpt-6.1-sol", effort=None,
+                   finished=iso(9999), duration_s=120, turns=9)
+        self.f.run("a", model_name="GPT-6.1 Sol", model="gpt-6.1-sol", effort="high",
+                   log=["[0m20s] turn 2 · Read x"])
+        self.f.run("b", model="glm-5.3-flash", started=iso(30), log=["[0m20s] turn 2 · Read x"])  # older run: no name
+        text = "\n".join(self.f.rows())
+        self.assertIn("· GPT-6.1 Sol high", text)
+        self.assertIn("/ ~2:00", text)            # its estimate, found by id
+        self.assertIn("· glm-5.3-flash", text)    # no name recorded: the id
+
     def test_feedback_runs_are_labelled(self):
         self.f.run("a", kind="feedback", log=["[0m20s] turn 2 · Read x"])
         self.assertIn("droid · feedback · glm-5.3-flash", self.f.rows()[0])

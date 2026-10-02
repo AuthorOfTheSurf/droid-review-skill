@@ -73,6 +73,7 @@ check "session last: exit 0"               [ "$RC" = 0 ]
 check "session last: says continuing"      grep -q '^continuing ' "$t/o2.err"
 check "session last: records what it continues" json "$m2" "m['continues']['review']=='$md'"
 check "session last: same model"           json "$m2" 'm["model"]=="glm-5.3-flash" and m["effort"] is None'
+check "review: droid's name for the model" json "$m" 'm["model_name"]=="GLM-5.3-Flash"'
 check "review: round 1, no effort pinned"  json "$m" 'm["round"]==1 and m["effort"] is None'
 check "session last: round 2"              json "$m2" 'm["round"]==2'
 check "session last: title says round 2"   grep -qx '# droid review, round 2' "$(sed -n 1p "$t/o2")"
@@ -174,7 +175,7 @@ check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 
 wait
 after="$(sl)"
 # (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid · review *· gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid · review *· glm-5.3-flash .* done in '" _ "$after"
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid · review *· Gemini 3.8 Flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid · review *· GLM-5.3-Flash .* done in '" _ "$after"
 check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
 

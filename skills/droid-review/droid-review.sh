@@ -582,6 +582,32 @@ def worktree():
         c["unstaged"] += line[1] != " "
     return c
 
+def model_name(mid):
+    """What droid's /model picker calls the model ("GPT-6.1 Sol"), for people to
+    read: from the registry built into the droid binary, then the help's model
+    list (it lags, but has "auto"). None when neither has it."""
+    if not mid:
+        return None
+    import mmap, shutil
+    try:
+        with open(os.path.realpath(shutil.which("droid") or ""), "rb") as f:
+            t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        hit = re.search(rb'\{id:"%s",name:"([^"]+)"' % re.escape(mid.encode()), t)
+        if not hit:   # the id may be a constant: o.GPT_6_SOL="gpt-6-sol", then {id:Mn.GPT_6_SOL,name:...}
+            const = re.search(rb'\.([A-Z0-9_]+)="%s"' % re.escape(mid.encode()), t)
+            if const:
+                hit = re.search(rb'\{id:[\w$]+\.%s,name:"([^"]+)"' % const.group(1), t)
+        if hit:
+            return hit.group(1).decode()
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        out = subprocess.run(("droid", "exec", "--help"), capture_output=True, text=True, timeout=10).stdout
+        hit = re.search(r"^\s+%s\s{2,}(.+?)(?: \(default\))?$" % re.escape(mid), out, re.M)
+        return hit.group(1).strip() if hit else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
 def shortstat(*args):
     s = git("diff", "--shortstat", *args) or ""
     out = {}
@@ -618,6 +644,7 @@ if mode == "start":
             except (OSError, ValueError):
                 pass
         m["round"] = (prev.get("round") or 1) + 1
+    m["model_name"] = model_name(m["model"])
     try:
         r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
         if r.returncode == 0:

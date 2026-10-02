@@ -199,9 +199,9 @@ they go, add rows to Claude Code's status line, one per running review, under
 the status line you already have:
 
 ```
-◓ droid · review   · glm-5.3-flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
-◓ droid · review 2 · gemini-3.8-flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-✓ droid · review   · gpt-6-luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+◓ droid · review   · GLM-5.3-Flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
+◓ droid · review 2 · Gemini 3.8 Flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+✓ droid · review   · GPT-6 Luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 ```
 
 "review 2" is a re-check (`--session`), the second round of that review; the
