@@ -124,11 +124,11 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 | `fable` | `claude-fable-5.1` | droid's default |
 | `opus` | `claude-opus-5-5` | droid's default |
 | `astra` | `gpt-6-astra` | droid's default |
-| `sol` | `gpt-6-sol` | droid's default |
+| `sol` | `gpt-6.1-sol` | droid's default |
 | `grok` | `grok-4.7` | droid's default |
 | `qwen` | `qwen3.8-max` | droid's default |
 | `kimi` | `kimi-k3` | droid's default |
-| `deepseek` | `deepseek-v4-pro` | droid's default |
+| `deepseek` | `deepseek-v4.1-flash` | droid's default |
 
 Any other model id droid accepts works as the first word too (`droid exec -m x
 --list-tools` lists them all; `droid exec --help` lags behind). The script
@@ -136,7 +136,7 @@ checks the model before it starts droid, and the effort against the levels
 `droid exec --help` gives for that model, so `gemini max` fails at once with the
 levels Gemini takes; a model the help does not list yet runs unchecked. The
 table lives in `shortcut()` in the script; the family names point at the newest
-model as of droid 0.226.2, so move them when droid ships a newer one.
+model as of droid 0.232.0, so move them when droid ships a newer one.
 
 ### Just the script
 

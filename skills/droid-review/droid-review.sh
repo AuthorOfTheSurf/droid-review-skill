@@ -81,7 +81,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # Shortcuts: name → "model [effort]". A pinned effort is the level that model
 # should review at; without one, droid's per-model default applies. The family
 # names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
-# model in the family as of droid 0.226.2 — move them when droid ships a newer one.
+# model in the family as of droid 0.232.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
@@ -92,11 +92,11 @@ shortcut() {
     fable)  echo "claude-fable-5.1" ;;
     opus)   echo "claude-opus-5-5" ;;
     astra)  echo "gpt-6-astra" ;;
-    sol)    echo "gpt-6-sol" ;;
+    sol)    echo "gpt-6.1-sol" ;;
     grok)   echo "grok-4.7" ;;
     qwen)   echo "qwen3.8-max" ;;
     kimi)   echo "kimi-k3" ;;
-    deepseek) echo "deepseek-v4-pro" ;;
+    deepseek) echo "deepseek-v4.1-flash" ;;
     *) return 1 ;;
   esac
 }
