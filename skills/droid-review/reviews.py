@@ -74,6 +74,24 @@ def header(path):
     return out
 
 
+def file_notes(path):
+    """The notes under "## Response" in a review file: where a review written
+    before the metadata keeps them, having no .json."""
+    out, inside = [], False
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith("## "):
+                    inside = line.strip() == "## Response"
+                    continue
+                hit = re.match(r"^- (\d{4}-\d\d-\d\dT\S+): (.*)$", line.rstrip("\n")) if inside else None
+                if hit:
+                    out.append({"at": hit.group(1), "text": hit.group(2)})
+    except OSError:
+        pass
+    return out
+
+
 def load(folder, now):
     """Every run in the folder: its .json, or for a review written before the
     metadata existed, what its file's header says."""
@@ -116,7 +134,8 @@ def load(folder, now):
             "model": model, "name": model, "effort": None if effort in ("", "droid default") else effort,
             "branch": None, "head": None, "scope": None,
             "duration": int(turns.group(2)) if turns else None, "turns": int(turns.group(1)) if turns else None,
-            "error": None, "review": os.path.join(os.path.basename(folder), name), "notes": [],
+            "error": None, "review": os.path.join(os.path.basename(folder), name),
+            "notes": file_notes(os.path.join(folder, name)),
         })
     return runs
 

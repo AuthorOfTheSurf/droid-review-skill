@@ -168,6 +168,14 @@ class Notes(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 reviews.note(self.f.path, target, text, now=NOW)
 
+    def test_a_note_on_a_review_older_than_the_metadata_shows_in_history(self):
+        self.f.md("20260924-185524-feat-qwen.md", "# droid review\n\n- when: 2026-09-24T19:00:32\n"
+                  "- model: qwen3.8-max (reasoning droid default)\n- session: old\n- turns: 10, 305s\n\n"
+                  "## Findings\n\n- 2026-09-24T19:00:00: not a note, a finding\n")
+        reviews.note(self.f.path, "old", "fixed the base-ref crash", now=NOW)
+        out = reviews.history(self.f.path, True, False, now=NOW)
+        self.assertEqual([l for l in out if "→" in l], ["     → fixed the base-ref crash"])
+
     def test_history_shows_the_note_under_its_round(self):
         reviews.note(self.f.path, "20261003-000000-feat-glm.md", "fixed the crash", now=NOW)
         out = reviews.history(self.f.path, True, False, now=NOW)
