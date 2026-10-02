@@ -133,8 +133,11 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 Any other model id droid accepts works as the first word too (`droid exec -m x
 --list-tools` lists them all; `droid exec --help` lags behind). The script
 checks the model before it starts droid, and the effort against the levels
-`droid exec --help` gives for that model, so `gemini max` fails at once with the
-levels Gemini takes; a model the help does not list yet runs unchecked. The
+that model supports, so `gemini max` fails at once with the levels Gemini
+takes. `droid-review.sh --efforts` prints every model's levels and default
+(`--efforts luna` just one) — the same table droid's `/model` picker shows,
+read from the droid install, so it covers models `droid exec --help` leaves
+out. The
 table lives in `shortcut()` in the script; the family names point at the newest
 model as of droid 0.232.0, so move them when droid ships a newer one.
 
@@ -149,6 +152,7 @@ droid-review.sh --feedback "<ask>"        # plain-words feedback instead of /rev
 droid-review.sh --uncommitted
 droid-review.sh "luna the payment retry logic" # a model shortcut first
 droid-review.sh --models                 # list the shortcuts
+droid-review.sh --efforts luna           # a model's effort levels and default (alone: every model)
 droid-review.sh --models glm,gemini,grok "the auth changes"   # all three, in parallel
 droid-review.sh "glm,gemini the auth changes"                 # same fan-out, as the first word
 droid-review.sh --base origin/main --effort max

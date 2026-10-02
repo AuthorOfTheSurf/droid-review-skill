@@ -13,6 +13,7 @@
 #   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
 #   droid-review.sh --model glm-5.2 --effort max
 #   droid-review.sh --models              # list the shortcuts and exit
+#   droid-review.sh --efforts [model]     # every model's effort levels and default, or one's
 #   droid-review.sh --models gemini,luna,grok "<ask>"   # the same ask on each, in parallel
 #   droid-review.sh "gemini,luna the auth changes"      # same fan-out, as the first word
 #   droid-review.sh --checks docs/testing.md   # inline a file listing how to verify this repo
@@ -28,9 +29,8 @@
 # instruction with --session. Its first word picks the model when it is exactly
 # a shortcut (--models) or a droid model id, and the word after that sets the
 # reasoning effort when it is exactly an effort level. --model wins over both.
-# Without a model the default is glm. Efforts are checked against what
-# `droid exec --help` says each model supports, before droid runs (a model the
-# help does not list yet runs unchecked).
+# Without a model the default is glm. Efforts are checked against the levels
+# each model supports before droid runs; --efforts lists them.
 #
 # Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
 # (the effort applies only when the model has no pinned level).
@@ -105,17 +105,20 @@ is_effort() {
   return 1
 }
 
-# droid's model catalog: one "<id> <efforts>" line per model, efforts
+# droid's model catalog: one "<id> <efforts> <default>" line per model, efforts
 # comma-separated, "-" for no reasoning setting and "?" when droid gives no
-# details. The ids are the ones `droid exec` accepts, which it lists when handed
-# an unknown one; `droid exec --help` lags behind that list (new models missing,
-# retired ones kept) but is the only place efforts are given. Empty if both
-# formats changed, in which case nothing is validated and droid gets the last word.
+# details (default "-" when unknown). The ids are the ones `droid exec` accepts,
+# which it lists when handed an unknown one. Efforts come from `droid exec
+# --help`, which lags behind that list (new models missing, retired ones kept),
+# and for a model it leaves out, from the model registry built into the droid
+# binary — the same table its /model picker reads, which agrees with the help
+# wherever both list a model. Empty if every format changed, in which case
+# nothing is validated and droid gets the last word.
 catalog() {
   HELP="$(droid exec --help 2>/dev/null || true)" \
   ACCEPTED="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)" \
   python3 -c '
-import os, re
+import mmap, os, re, shutil
 section, ids, details = None, [], {}
 for line in os.environ["HELP"].splitlines():
     if line and not line[0].isspace():
@@ -126,11 +129,27 @@ for line in os.environ["HELP"].splitlines():
         if m:
             ids.append((m.group(1), re.sub(r" \(default\)$", "", m.group(2).strip())))
     elif section == "Model details:":
-        m = re.match(r"\s+- (.+): supports reasoning: (\w+); supported: \[([^\]]*)\]", line)
+        m = re.match(r"\s+- (.+): supports reasoning: (\w+); supported: \[([^\]]*)\]; default: (\w+)", line)
         if m:
             efforts = m.group(3).replace(" ", "") if m.group(2) == "Yes" else "-"
-            details[m.group(1)] = efforts
-efforts = {model_id: details.get(name, "?") for model_id, name in ids}
+            details[m.group(1)] = (efforts, m.group(4) if m.group(2) == "Yes" else "-")
+efforts = {model_id: details[name] for model_id, name in ids if name in details}
+# The registry in the binary: {id:"<id>",name:...,reasoningEffort:{supported:[...],default:"..."}.
+# An id may be a constant (Mn.GPT_6_SOL), defined elsewhere as o.GPT_6_SOL="gpt-6-sol".
+built = {}
+try:
+    with open(os.path.realpath(shutil.which("droid")), "rb") as f:
+        buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    consts = dict(re.findall(rb"o\.([A-Z0-9_]+)=\"([^\"]+)\"", buf))
+    for m in re.finditer(rb"\{id:(?:\"([^\"]+)\"|[\w$]+\.([A-Z0-9_]+)),name:\"[^\"]*\"[^\x00]{0,3000}?reasoningEffort:\{supported:\[([^\]]*)\],default:\"([^\"]*)\"", buf):
+        if b"{id:" in m.group(0)[4:]:
+            continue   # ran into the next model: this one sets no effort
+        model_id = (m.group(1) or consts.get(m.group(2), m.group(2))).decode()
+        levels = [v.strip(b"\" ").decode() for v in m.group(3).split(b",") if v.strip()]
+        levels = ",".join(levels) if levels and levels != ["none"] else "-"
+        built.setdefault(model_id, (levels, m.group(4).decode() if levels != "-" else "-"))
+except (OSError, TypeError, ValueError):
+    pass
 accepted, listing = [], False
 for line in os.environ["ACCEPTED"].splitlines():
     if re.match(r"Available (built-in|custom) models:$", line):
@@ -142,7 +161,7 @@ for line in os.environ["ACCEPTED"].splitlines():
                 accepted.append(model_id)
         listing = False
 for model_id in accepted or [model_id for model_id, _ in ids]:
-    print(model_id, efforts.get(model_id, "?"))
+    print(model_id, *efforts.get(model_id) or built.get(model_id) or ("?", "-"))
 '
 }
 
@@ -171,6 +190,7 @@ SCOPE="branch"
 CHECKS=""
 SESSION=""
 MODELS=""        # comma list: fan out, one child run per model
+EFFORTS=""       # --efforts: list levels instead of running ("all" or a model)
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -193,11 +213,34 @@ while [ $# -gt 0 ]; do
         printf '%-9s %-18s %s\n' "$s" "$1" "${2:-droid default}"
       done
       exit 0 ;;
+    --efforts)
+      case "${2:-}" in ""|-*) EFFORTS="all"; shift ;; *) EFFORTS="$2"; shift 2 ;; esac ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1 (--help for usage)" ;;
     *) ASK="${ASK:+$ASK }$1"; shift ;;
   esac
 done
+
+# --efforts answers "what levels does this model take" without a git repo or a
+# run: id, droid's default, every supported level, and the shortcuts naming it.
+if [ -n "$EFFORTS" ]; then
+  command -v droid >/dev/null || die "droid CLI not installed"
+  rows="$(catalog || true)"
+  [ -n "$rows" ] || die "could not read droid's model list"
+  want="$EFFORTS"; spec="$(shortcut "$want" || true)"; [ -z "$spec" ] || want="${spec%% *}"
+  found=""
+  while read -r id levels def; do
+    [ "$want" = all ] || [ "$id" = "$want" ] || continue
+    names=""
+    for s in $SHORTCUTS; do spec="$(shortcut "$s")"; [ "${spec%% *}" = "$id" ] && names="${names:+$names,}$s${spec#"$id"}"; done
+    case "$levels" in -) levels="(no reasoning setting)" ;; \?) levels="(droid gives none)" ;; esac
+    found+="$(printf '%-30s %-8s %-38s %s' "$id" "$def" "$levels" "$names")"$'\n'
+  done <<<"$rows"
+  [ -n "$found" ] || die "droid has no model '$EFFORTS' (shortcuts: $SHORTCUTS)"
+  printf '%-30s %-8s %-38s %s\n' model default supported shortcut
+  printf '%s' "$found"
+  exit 0
+fi
 
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
