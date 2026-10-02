@@ -2,9 +2,9 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ◐ droid review   · glm-5.3-flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
-    ◐ droid review 2 · gemini-3.8-flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-    ✓ droid review   · gpt-6-luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+    ◐ droid · review   · glm-5.3-flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
+    ◐ droid · review 2 · gemini-3.8-flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+    ✓ droid · review   · gpt-6-luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the last line of its .log (turn and
@@ -211,9 +211,9 @@ def rows(folder, now, columns):
         return []
     shown.sort(key=lambda r: r.get("started") or "")
     # Pad both columns to the widest shown, so stacked rows line up:
-    # "droid review 2 · grok-4.7" over "droid review   · glm-5.3-flash high".
+    # "droid · review 2 · grok-4.7" over "droid · review   · glm-5.3-flash high".
     def label_of(m):
-        label = "droid " + ("feedback" if m.get("kind") == "feedback" else "review")
+        label = "feedback" if m.get("kind") == "feedback" else "review"
         if (m.get("round") or 1) > 1:
             label += " %d" % m["round"]   # a re-check: short, and timed against re-checks
         return label
@@ -224,7 +224,8 @@ def rows(folder, now, columns):
         label = label_of(m)
         model = m.get("model") or "?"
         effort = (" " + m["effort"]) if m.get("effort") else ""
-        who = "%s%s%s · %s%s%s%s%s%s" % (label, " " * (lwidth - len(label)), GREY, RESET + TEAL, model,
+        who = "droid%s · %s%s%s%s · %s%s%s%s%s%s" % (GREY, RESET, label, " " * (lwidth - len(label)), GREY,
+                                                       RESET + TEAL, model,
                                        RESET + GREY, effort, RESET, " " * (width - len(model + effort)))
         if status == "running":
             if hist is None:
