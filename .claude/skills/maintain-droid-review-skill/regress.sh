@@ -141,7 +141,26 @@ PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "
 check "feedback: exit 0"                   [ "$RC" = 0 ]
 check "feedback: metadata kind feedback"   json "$(newest_meta)" 'm["kind"]=="feedback" and m["asked"]=="is this sane"'
 
-# 9. No run left a temp file or a "running" status behind.
+# 9. The status line, live: mid-run it shows the run and its turn; just after,
+# the result. (Its own states are unit-tested in statusline_test.py, run below.)
+sl() { echo "{\"workspace\":{\"current_dir\":\"$t/repo\"}}" | COLUMNS=200 python3 "$r/skills/droid-review/statusline.py" | sed 's/\x1b\[[0-9;]*m//g; s/\x1b\]8;;[^\x1b]*\x1b\\//g'; }
+PATH="$t/bin:$PATH" STUB_DROID_DELAY=2 "$d" --base master --models glm,gemini > "$t/o10" 2>&1 &
+live=""
+for _ in $(seq 1 60); do
+  sleep 0.5
+  live="$(sl)"
+  case "$live" in *"turn 1 · Read"*) break ;; esac
+done
+check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[◐◓◑◒] droid ')" = 2 ]
+check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 'turn 1 · Read README.md'" _ "$live"
+wait
+after="$(sl)"
+# (droid-feedback finished moments ago too, so its row is there as well.)
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid glm-5.3-flash .* done in '" _ "$after"
+check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
+check "status line: unit tests"            python3 "$here/statusline_test.py"
+
+# 10. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]
 check "no run still marked running"        sh -c "! grep -l '\"status\": \"running\"' .droid-reviews/*.json"
 

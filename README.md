@@ -188,6 +188,38 @@ terminal, stderr shows a board redrawn in place, one line per model; elsewhere
 and result for each. Exit 0 if any model succeeded; Ctrl-C stops the rest and
 keeps what finished. `--models` with no list still prints the shortcuts.
 
+### Live status in Claude Code (optional)
+
+Reviews usually run in the background while you keep working. To see them as
+they go, add rows to Claude Code's status line, one per running review, under
+the status line you already have:
+
+```
+◓ droid glm-5.3-flash high     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
+◓ droid gemini-3.8-flash high  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+✓ droid luna max               done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+```
+
+The time after `~` is the median of that model's earlier finished runs in the
+repo, and the bar fills toward it (amber once past it; a pulse until there is
+any history). A finished run stays 30 seconds with its result, then goes. With
+nothing running it prints nothing.
+
+It is one script, `skills/droid-review/statusline.py`, set in
+`~/.claude/settings.json`. Put the status line command you already have, if
+any, after `--`: it runs first, on the same input, and these rows go under it.
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "python3 /path/to/droid-review-skill/skills/droid-review/statusline.py -- <your current statusLine command>",
+  "refreshInterval": 2
+}
+```
+
+`refreshInterval` re-runs the line every 2 seconds, so the elapsed time moves
+while the session is idle. To undo, put your old command back.
+
 ### Maintaining it
 
 droid changes under the script without warning: new models, retired ids,

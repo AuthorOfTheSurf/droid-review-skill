@@ -34,8 +34,9 @@ from it. Having it in the transcript is the point.
 If droid itself is behind, everything below is too; say so, and let the user
 decide whether to update droid first.
 
-**Are Claude Code mods on for this account yet?** A live strip of running
-reviews is planned as a mod (issue #4), but mods are rolling out remotely. Check
+**Are Claude Code mods on for this account yet?** Running reviews show in
+the status line today (README: "Live status in Claude Code"); a mod could draw
+them natively (issue #4), but mods are rolling out remotely. Check
 from an empty directory, in one line of the report:
 
 ```bash
@@ -178,7 +179,10 @@ single run and of a fan-out (TERM to the whole process group), and
 droid-feedback — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
 is a script bug, or a contract the check encodes that changed on purpose:
-then change the check in the same commit. Also run `bash -n` and `shellcheck`
+then change the check in the same commit. It also checks the status line rows live during a slowed stub run, and runs
+`statusline_test.py` (the rows for every run state, against fixture folders).
+To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
+stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
 on both scripts (shellcheck: only report new warnings). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
 
