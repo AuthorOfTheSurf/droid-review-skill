@@ -166,11 +166,31 @@ class StatusLine(unittest.TestCase):
         self.assertEqual(len(row), 60)
         self.assertTrue(row.endswith("…"))
 
+    def test_live_pid_but_log_silent_an_hour_reads_as_stopped(self):
+        # Killed outright, its pid reused: the pid says alive, the log says not.
+        self.f.run("a", pid=1, log=["[0m20s] turn 2 · Read x"])
+        old = NOW - sl.STALE_S - 60
+        os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
+        self.assertEqual(self.f.rows(), [])   # stopped, and long enough ago to hide
+        os.utime(os.path.join(self.f.dir, "a.log"), (NOW - sl.STALE_S + 60,) * 2)
+        self.assertIn("turn 2", self.f.rows()[0])   # still within the hour: running
+
+    def test_cut_never_leaves_a_link_open(self):
+        t = sl.GREEN + "ok " + sl.link("abc.md", "/x/abc.md") + " and more"
+        for columns in range(1, 20):
+            cut = sl.fit(t, columns)
+            opens = cut.count("\033]8;;file://")
+            closes = cut.count(sl.LINK_CLOSE)
+            self.assertGreaterEqual(closes, opens, "columns=%d leaves a link open" % columns)
+            if cut != t:   # cut short: ends closed and reset
+                self.assertTrue(cut.endswith(sl.LINK_CLOSE + sl.RESET))
+
     def test_fit_keeps_links_whole(self):
         t = sl.GREEN + "ok " + sl.link("abc.md", "/x/abc.md") + " and more"
         cut = sl.fit(t, 6)
         self.assertEqual(sl.ANSI.sub("", cut), "ok ab…")
-        self.assertEqual(cut.count("\033]8;;"), 2)   # opened and closed
+        self.assertEqual(cut.count("\033]8;;file://"), 1)   # the link survives the cut
+        self.assertGreaterEqual(cut.count(sl.LINK_CLOSE), 1)   # and is closed
 
     def test_half_written_or_foreign_json_is_ignored(self):
         with open(os.path.join(self.f.dir, "junk.json"), "w") as f:
@@ -199,13 +219,23 @@ class Command(unittest.TestCase):
         try:
             f.run("a", log=["[0m20s] turn 2 · Read x"])
             stdin = json.dumps({"workspace": {"current_dir": f.root}})
-            r = self.run_script(stdin, "--", "python3", "-c",
-                                "'import sys,json; print(\"MINE\", json.load(sys.stdin)[\"workspace\"][\"current_dir\"])'")
+            r = self.run_script(stdin, "--", sys.executable, "-c",
+                                'import sys,json; print("MINE", json.load(sys.stdin)["workspace"]["current_dir"])')
             lines = r.stdout.splitlines()
             self.assertEqual(lines[0], "MINE " + f.root)
             self.assertIn("droid glm-5.3-flash", sl.ANSI.sub("", lines[1]))
         finally:
             f.close()
+
+    def test_previous_status_line_keeps_its_quoting(self):
+        # As the settings shell hands it over: already split and unquoted.
+        with tempfile.TemporaryDirectory() as d:
+            r = self.run_script(json.dumps({"workspace": {"current_dir": d}}),
+                                "--", sys.executable, "-c", 'print("PREV line")')
+            self.assertEqual(r.stdout, "PREV line\n")
+            r = self.run_script(json.dumps({"workspace": {"current_dir": d}}),
+                                "--", 'echo "one string"; echo two')   # a whole command line
+            self.assertEqual(r.stdout, "one string\ntwo\n")
 
     def test_outside_a_repo_with_reviews_prints_only_the_previous_line(self):
         with tempfile.TemporaryDirectory() as d:

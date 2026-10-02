@@ -36,6 +36,9 @@ import time
 from datetime import datetime
 
 SHOW_FINISHED_S = 30
+# A run killed outright (SIGKILL, a reboot) never records its end, and its pid
+# can be reused; a log silent this long means it is not running any more.
+STALE_S = 3600
 SPIN = "◐◓◑◒"
 RESET = "\033[0m"
 TEAL, GREEN, AMBER, RED, GREY = (
@@ -149,14 +152,18 @@ def fit(text, columns):
             break
         out.append(part[:room])
         n += len(part[:room])
-    return "".join(out) + "…" + RESET
+    # A cut can land inside a link; closing one that is not open is harmless.
+    return "".join(out) + "…" + LINK_CLOSE + RESET
+
+
+LINK_CLOSE = "\033]8;;\033\\"
 
 
 def link(text, path):
     """text as a clickable file link (OSC 8) in terminals that support it."""
     if not text:
         return ""
-    return "\033]8;;file://%s\033\\%s\033]8;;\033\\" % (path, text)
+    return "\033]8;;file://%s\033\\%s%s" % (path, text, LINK_CLOSE)
 
 
 def since(iso, now):
@@ -166,15 +173,20 @@ def since(iso, now):
         return None
 
 
+def silent_for(folder, m, now):
+    """Seconds since the run's log was last written (0 when there is no log yet)."""
+    try:
+        return now - os.path.getmtime(os.path.join(folder, m["_name"] + ".log"))
+    except OSError:
+        return 0
+
+
 def ended_ago(folder, m, now):
     """Seconds since a run ended; a "stopped" one has no finish recorded, so
     its log's last write stands in."""
     ago = since(m.get("finished"), now)
     if ago is None:
-        try:
-            ago = now - os.path.getmtime(os.path.join(folder, m["_name"] + ".log"))
-        except OSError:
-            ago = float("inf")
+        ago = silent_for(folder, m, now) if os.path.exists(os.path.join(folder, m["_name"] + ".log")) else float("inf")
     return ago
 
 
@@ -186,7 +198,7 @@ def rows(folder, now, columns):
     out = []
     for m in runs:
         m["_status"] = m["status"]
-        if m["status"] == "running" and not alive(m.get("pid")):
+        if m["status"] == "running" and (not alive(m.get("pid")) or silent_for(folder, m, now) > STALE_S):
             m["_status"] = "stopped"
         m["_ago"] = None if m["_status"] == "running" else ended_ago(folder, m, now)
     shown = [m for m in runs if m["_ago"] is None or m["_ago"] <= SHOW_FINISHED_S]
@@ -241,11 +253,14 @@ def main(argv):
         data = {}
     # Anything after -- is the status line you already had: run it on the same
     # input and print it first, so these rows stack under it.
+    # The shell that ran this already split and unquoted it: run those words as
+    # they are. One word is a whole command line ("-- 'python3 x.py'"): shell it.
     if "--" in argv:
         cmd = argv[argv.index("--") + 1:]
         if cmd:
             try:
-                r = subprocess.run(" ".join(cmd), shell=True, input=raw, capture_output=True, text=True, timeout=5)
+                r = subprocess.run(cmd[0] if len(cmd) == 1 else cmd, shell=len(cmd) == 1, input=raw,
+                                   capture_output=True, text=True, timeout=5)
                 if r.stdout.strip():
                     sys.stdout.write(r.stdout if r.stdout.endswith("\n") else r.stdout + "\n")
             except (OSError, subprocess.SubprocessError):

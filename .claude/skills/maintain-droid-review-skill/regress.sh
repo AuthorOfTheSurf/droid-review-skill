@@ -8,6 +8,9 @@
 #
 #   .claude/skills/maintain-droid-review-skill/regress.sh
 set -uo pipefail
+# Run from inside a droid-review fan-out (a reviewer running this suite), the
+# child markers would leak into every run below and change what they do.
+unset _DROID_REVIEW_CHILD _DROID_REVIEW_STAMP _DROID_REVIEW_CATALOG
 
 here="$(cd "$(dirname "$0")" && pwd)"
 r="$(cd "$here/../../.." && pwd)"
@@ -25,7 +28,8 @@ git checkout -q -b feat
 echo a > committed && git add committed && git commit -q -m "feat: one commit"
 echo s > staged && git add staged          # 1 staged
 echo u >> committed                        # 1 unstaged
-echo n > untracked                         # 1 untracked
+echo n > untracked                         # 3 untracked: one file, and two
+mkdir newdir && echo a > newdir/a && echo b > newdir/b   # in a new folder git folds into one line
 
 fails=0
 check() {  # check <name> <command...>: passes when the command succeeds
@@ -52,7 +56,7 @@ check "review: metadata next to it"        [ -f "$m" ]
 check "review: status ok, times, pid"      json "$m" 'm["status"]=="ok" and m["started"] and m["finished"] and isinstance(m["pid"],int) and m["duration_s"]>=0'
 check "review: head and branch"            json "$m" "m['head']=='$head_sha' and m['branch']=='feat' and m['head_subject']=='feat: one commit'"
 check "review: base, 1 ahead, 0 behind"    json "$m" "m['base']['ref']=='master' and m['base']['sha']=='$base_sha' and m['base']['merge_base']=='$base_sha' and m['base']['ahead']==1 and m['base']['behind']==0"
-check "review: uncommitted 1/1/1"          json "$m" 'm["uncommitted"]=={"staged":1,"unstaged":1,"untracked":1}'
+check "review: uncommitted 1/1/3"          json "$m" 'm["uncommitted"]=={"staged":1,"unstaged":1,"untracked":3}'
 check "review: diff counts tracked files"  json "$m" 'm["diff"]["files"]==2'
 check "review: session, turns, droid ver"  json "$m" 'm["session"] and m["turns"]==2 and m["droid_version"]'
 check "review: files point at each other"  json "$m" "m['files']['review']=='$md' and m['files']['log']=='${md%.md}.log'"
@@ -78,12 +82,15 @@ for p in $(grep '	' "$t/o3" | cut -f3); do
   check "fan-out: $(basename "$p") metadata ok" json "$(meta_of "$p")" 'm["status"]=="ok"'
 done
 idx="$(tail -1 "$t/o3")"
-check "fan-out: index has started/branch"  sh -c "grep -q '^- started: ' '$idx' && grep -q '^- branch: feat at ' '$idx'"
+check "fan-out: index has started/branch"  sh -c "grep -Eq '^- started: [0-9]{4}-[0-9]{2}-[0-9]{2}T' '$idx' && grep -q '^- branch: feat at ' '$idx'"
 
 # 4. Both fail without a word on stderr.
 STUB_DROID_MODE=fail-silent run "$t/o4" --base master --models glm,gemini
 check "fail-silent: exit 1"                [ "$RC" = 1 ]
 check "fail-silent: both failed"           [ "$(grep -c "	failed	" "$t/o4")" = 2 ]
+for j in $(ls -t .droid-reviews/*.json | head -2); do   # completion, then exit 1
+  check "fail-silent: $(basename "$j") metadata failed" json "$j" 'm["status"]=="failed" and "exited 1" in m["error"]'
+done
 
 # 5. droid reports an error.
 STUB_DROID_MODE=error run "$t/o5" --base master

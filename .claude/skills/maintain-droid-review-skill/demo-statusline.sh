@@ -19,22 +19,29 @@ REAL_DROID="$(command -v droid)" || { echo "needs the real droid on PATH (for it
 export REAL_DROID
 
 bin="$(mktemp -d)"
-trap 'rm -rf "$bin"' EXIT
+out="$bin/out"
+root="$(git rev-parse --show-toplevel)"
+# Remove the stub reviews' files, also when the demo is interrupted.
+cleanup() {
+  if [ -f "$out" ]; then
+    while IFS=$'\t' read -r _ _ path _; do
+      [ -n "$path" ] && [ "$path" != "-" ] || continue
+      base="$root/${path%.*}"
+      rm -f "$base.md" "$base.log" "$base.json"
+    done < <(grep $'\t' "$out" || true)
+    index="$(tail -1 "$out")"
+    case "$index" in *-multi.md) rm -f "$root/$index" ;; esac
+  fi
+  rm -rf "$bin"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 ln -sf "$here/stub-droid" "$bin/droid"
 
 echo "stub reviews on $models, ${delay}s per event; watch the status line in your Claude Code session" >&2
-out="$bin/out"
 PATH="$bin:$PATH" STUB_DROID_DELAY="$delay" STUB_DROID_TURNS=8 \
   "$r/skills/droid-review/droid-review.sh" --models "$models" "status line demo" > "$out" || true
 
 echo "finished; rows stay 30s, then this removes the stub files" >&2
 sleep 31
-root="$(git rev-parse --show-toplevel)"
-while IFS=$'\t' read -r _ _ path _; do
-  [ -n "$path" ] && [ "$path" != "-" ] || continue
-  base="$root/${path%.*}"
-  rm -f "$base.md" "$base.log" "$base.json"
-done < <(grep $'\t' "$out" || true)
-index="$(tail -1 "$out")"
-case "$index" in *-multi.md) rm -f "$root/$index" ;; esac
 echo "done" >&2

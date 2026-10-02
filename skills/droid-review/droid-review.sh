@@ -531,7 +531,7 @@ run_meta() {
   ROOT="$ROOT" MODE="$MODE" SCOPE="$SCOPE" BASE="$BASE" WHAT="$WHAT" \
   MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
   SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
-  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" \
+  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" \
   python3 - "$@" <<'PY'
 import datetime, json, os, re, subprocess, sys
 mode, meta = sys.argv[1], sys.argv[2]
@@ -573,7 +573,7 @@ def ended(m, status):
 
 def worktree():
     c = {"staged": 0, "unstaged": 0, "untracked": 0}
-    for line in (git("status", "--porcelain=v1", raw=True) or "").splitlines():
+    for line in (git("status", "--porcelain=v1", "--untracked-files=all", raw=True) or "").splitlines():
         if line.startswith("??"):
             c["untracked"] += 1
             continue
@@ -645,7 +645,10 @@ elif mode == "finish":
         prefix = "" if m["error"].startswith("droid did not") else "droid reported an error: "
         sys.stderr.write(prefix + m["error"] + "\n")
         sys.exit(1)
-    ended(m, "ok")
+    rc = int(env("DROID_EXIT") or 0)
+    ended(m, "ok" if rc == 0 else "failed")
+    if rc != 0:
+        m["error"] = "droid exited %d after reporting completion" % rc
     m["turns"] = d.get("num_turns")
     m["droid_duration_s"] = (d.get("duration_ms") or 0) // 1000
     m["files"]["review"] = out
@@ -749,8 +752,8 @@ fan_out() {
 
   interrupted=""        # global, set from the trap
   trap 'interrupted=1' INT TERM
-  local t0=$SECONDS t0_epoch drawn=""
-  t0_epoch="$(date +%s)"
+  local t0=$SECONDS t0_iso drawn=""
+  t0_iso="$(date +%Y-%m-%dT%H:%M:%S%z)"
   say() { [ -n "$board" ] || printf '%-9s %s\n' "${NAMES[$1]}" "$2" >&2; }
   while :; do
     now=$((SECONDS - t0))
@@ -832,7 +835,7 @@ fan_out() {
   {
     echo "# droid $([ "$MODE" = feedback ] && echo feedback || echo review), ${n} models"
     echo
-    echo "- started: $(date -r "$t0_epoch" +%Y-%m-%dT%H:%M:%S%z)"
+    echo "- started: $t0_iso"
     echo "- finished: $(date +%Y-%m-%dT%H:%M:%S%z)"
     echo "- scope: $WHAT"
     echo "- branch: ${BRANCH:-detached HEAD} at $(git rev-parse --short HEAD)"
@@ -1036,7 +1039,7 @@ STATUS=${PIPESTATUS[0]}
 set -e
 
 claim_out
-run_meta finish "$META" "$JSON" || { rm -f "$OUT"; exit 1; }
+DROID_EXIT="$STATUS" run_meta finish "$META" "$JSON" || { rm -f "$OUT"; exit 1; }
 
 exit "$STATUS"
 }
