@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# A stand-in droid for exercising droid-review.sh without spending a model run.
+# Put this file's directory first on PATH under the name `droid` (a symlink),
+# and set REAL_DROID to the real binary so --help / --list-tools (the catalog)
+# still answer truthfully:
+#
+#   mkdir -p "$tmp/bin" && ln -sf "$PWD/stub-droid" "$tmp/bin/droid"
+#   REAL_DROID="$(command -v droid)" PATH="$tmp/bin:$PATH" droid-review.sh ...
+#
+# Every `exec` run emits the stream-json events droid-review.sh parses, shaped
+# like the real ones (verify that shape against a real run — see SKILL.md §2):
+#   STUB_DROID_MODE=ok           init, two tool calls, completion; exit 0 (default)
+#   STUB_DROID_MODE=fail-silent  completion, then exit 1 with nothing on stderr
+#   STUB_DROID_MODE=error        an error event; exit 1
+#   STUB_DROID_MODE=garbage      a line that is not JSON; exit 1
+set -euo pipefail
+
+for a in "$@"; do
+  case "$a" in
+    --help|--list-tools)
+      [ -n "${REAL_DROID:-}" ] && exec "$REAL_DROID" "$@"
+      exit 1 ;;
+  esac
+done
+
+model="" effort="" session="stub-$$-$RANDOM"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m|--model) model="$2"; shift 2 ;;
+    -r|--reasoning-effort) effort="$2"; shift 2 ;;
+    -s|--session-id) session="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+ev() { printf '%s\n' "$1"; }
+case "${STUB_DROID_MODE:-ok}" in
+  ok)
+    ev "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"model\":\"$model\",\"reasoning_effort\":\"$effort\"}"
+    ev '{"type":"tool_call","messageId":"m1","toolName":"Read","parameters":{"file_path":"README.md"}}'
+    ev '{"type":"tool_call","messageId":"m2","toolName":"Execute","parameters":{"command":"git diff --stat"}}'
+    ev "{\"type\":\"completion\",\"finalText\":\"## Review\\n\\nNo findings (stub).\",\"numTurns\":2,\"durationMs\":1200,\"session_id\":\"$session\"}"
+    ;;
+  fail-silent)
+    ev "{\"type\":\"completion\",\"finalText\":\"partial (stub)\",\"numTurns\":1,\"durationMs\":500,\"session_id\":\"$session\"}"
+    exit 1 ;;
+  error)
+    ev '{"type":"error","message":"stub: model unavailable"}'
+    exit 1 ;;
+  garbage)
+    echo "stub: not json"
+    exit 1 ;;
+esac

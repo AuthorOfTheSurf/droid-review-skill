@@ -124,19 +124,25 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 | `fable` | `claude-fable-5.1` | droid's default |
 | `opus` | `claude-opus-5-5` | droid's default |
 | `astra` | `gpt-6-astra` | droid's default |
-| `sol` | `gpt-6-sol` | droid's default |
+| `sol` | `gpt-6.1-sol` | droid's default |
 | `grok` | `grok-4.7` | droid's default |
 | `qwen` | `qwen3.8-max` | droid's default |
 | `kimi` | `kimi-k3` | droid's default |
-| `deepseek` | `deepseek-v4-pro` | droid's default |
+| `deepseek` | `deepseek-v4.1-flash` | droid's default |
 
 Any other model id droid accepts works as the first word too (`droid exec -m x
 --list-tools` lists them all; `droid exec --help` lags behind). The script
 checks the model before it starts droid, and the effort against the levels
-`droid exec --help` gives for that model, so `gemini max` fails at once with the
-levels Gemini takes; a model the help does not list yet runs unchecked. The
+that model supports, so `gemini max` fails at once with the levels Gemini
+takes. `droid-review.sh --efforts` prints every model's levels and default
+(`--efforts luna` just one) — the same table droid's `/model` picker shows,
+read from the droid install, so it covers models `droid exec --help` leaves
+out — with each model's price multiplier and whether it is new, on sale or
+deprecated. `--whats-new` prints what the top of `/model` shows: new models,
+discounts and when they end, deprecated models with droid's replacement, and
+whether each shortcut is the newest generation in droid's own family order. The
 table lives in `shortcut()` in the script; the family names point at the newest
-model as of droid 0.226.2, so move them when droid ships a newer one.
+model as of droid 0.232.0, so move them when droid ships a newer one.
 
 ### Just the script
 
@@ -149,6 +155,8 @@ droid-review.sh --feedback "<ask>"        # plain-words feedback instead of /rev
 droid-review.sh --uncommitted
 droid-review.sh "luna the payment retry logic" # a model shortcut first
 droid-review.sh --models                 # list the shortcuts
+droid-review.sh --efforts luna           # a model's effort levels and default (alone: every model)
+droid-review.sh --whats-new              # new, discounted and deprecated models; shortcuts vs. newest
 droid-review.sh --models glm,gemini,grok "the auth changes"   # all three, in parallel
 droid-review.sh "glm,gemini the auth changes"                 # same fan-out, as the first word
 droid-review.sh --base origin/main --effort max
@@ -179,6 +187,15 @@ terminal, stderr shows a board redrawn in place, one line per model; elsewhere
 `.droid-reviews/<stamp>-<branch>-multi.md` tabling status, time, words, session
 and result for each. Exit 0 if any model succeeded; Ctrl-C stops the rest and
 keeps what finished. `--models` with no list still prints the shortcuts.
+
+### Maintaining it
+
+droid changes under the script without warning: new models, retired ids,
+renamed flags, a different help format. In this repo, `/maintain-droid-review-skill`
+(a project skill under `.claude/skills/`) checks the script against the
+installed droid, proposes shortcut moves for you to pick from, runs every
+script path against a stub droid, and keeps the docs in agreement. Run it after
+a droid upgrade.
 
 ## License
 

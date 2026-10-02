@@ -13,6 +13,8 @@
 #   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
 #   droid-review.sh --model glm-5.2 --effort max
 #   droid-review.sh --models              # list the shortcuts and exit
+#   droid-review.sh --efforts [model]     # every model's effort levels and default, or one's
+#   droid-review.sh --whats-new           # models droid marks new, on sale or deprecated
 #   droid-review.sh --models gemini,luna,grok "<ask>"   # the same ask on each, in parallel
 #   droid-review.sh "gemini,luna the auth changes"      # same fan-out, as the first word
 #   droid-review.sh --checks docs/testing.md   # inline a file listing how to verify this repo
@@ -28,9 +30,8 @@
 # instruction with --session. Its first word picks the model when it is exactly
 # a shortcut (--models) or a droid model id, and the word after that sets the
 # reasoning effort when it is exactly an effort level. --model wins over both.
-# Without a model the default is glm. Efforts are checked against what
-# `droid exec --help` says each model supports, before droid runs (a model the
-# help does not list yet runs unchecked).
+# Without a model the default is glm. Efforts are checked against the levels
+# each model supports before droid runs; --efforts lists them.
 #
 # Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
 # (the effort applies only when the model has no pinned level).
@@ -81,7 +82,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # Shortcuts: name → "model [effort]". A pinned effort is the level that model
 # should review at; without one, droid's per-model default applies. The family
 # names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
-# model in the family as of droid 0.226.2 — move them when droid ships a newer one.
+# model in the family as of droid 0.232.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
@@ -92,11 +93,11 @@ shortcut() {
     fable)  echo "claude-fable-5.1" ;;
     opus)   echo "claude-opus-5-5" ;;
     astra)  echo "gpt-6-astra" ;;
-    sol)    echo "gpt-6-sol" ;;
+    sol)    echo "gpt-6.1-sol" ;;
     grok)   echo "grok-4.7" ;;
     qwen)   echo "qwen3.8-max" ;;
     kimi)   echo "kimi-k3" ;;
-    deepseek) echo "deepseek-v4-pro" ;;
+    deepseek) echo "deepseek-v4.1-flash" ;;
     *) return 1 ;;
   esac
 }
@@ -105,17 +106,20 @@ is_effort() {
   return 1
 }
 
-# droid's model catalog: one "<id> <efforts>" line per model, efforts
+# droid's model catalog: one "<id> <efforts> <default>" line per model, efforts
 # comma-separated, "-" for no reasoning setting and "?" when droid gives no
-# details. The ids are the ones `droid exec` accepts, which it lists when handed
-# an unknown one; `droid exec --help` lags behind that list (new models missing,
-# retired ones kept) but is the only place efforts are given. Empty if both
-# formats changed, in which case nothing is validated and droid gets the last word.
+# details (default "-" when unknown). The ids are the ones `droid exec` accepts,
+# which it lists when handed an unknown one. Efforts come from `droid exec
+# --help`, which lags behind that list (new models missing, retired ones kept),
+# and for a model it leaves out, from the model registry built into the droid
+# binary — the same table its /model picker reads, which agrees with the help
+# wherever both list a model. Empty if every format changed, in which case
+# nothing is validated and droid gets the last word.
 catalog() {
   HELP="$(droid exec --help 2>/dev/null || true)" \
   ACCEPTED="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)" \
   python3 -c '
-import os, re
+import mmap, os, re, shutil
 section, ids, details = None, [], {}
 for line in os.environ["HELP"].splitlines():
     if line and not line[0].isspace():
@@ -126,11 +130,27 @@ for line in os.environ["HELP"].splitlines():
         if m:
             ids.append((m.group(1), re.sub(r" \(default\)$", "", m.group(2).strip())))
     elif section == "Model details:":
-        m = re.match(r"\s+- (.+): supports reasoning: (\w+); supported: \[([^\]]*)\]", line)
+        m = re.match(r"\s+- (.+): supports reasoning: (\w+); supported: \[([^\]]*)\]; default: (\w+)", line)
         if m:
             efforts = m.group(3).replace(" ", "") if m.group(2) == "Yes" else "-"
-            details[m.group(1)] = efforts
-efforts = {model_id: details.get(name, "?") for model_id, name in ids}
+            details[m.group(1)] = (efforts, m.group(4) if m.group(2) == "Yes" else "-")
+efforts = {model_id: details[name] for model_id, name in ids if name in details}
+# The registry in the binary: {id:"<id>",name:...,reasoningEffort:{supported:[...],default:"..."}.
+# An id may be a constant (Mn.GPT_6_SOL), defined elsewhere as o.GPT_6_SOL="gpt-6-sol".
+built = {}
+try:
+    with open(os.path.realpath(shutil.which("droid")), "rb") as f:
+        buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    consts = dict(re.findall(rb"o\.([A-Z0-9_]+)=\"([^\"]+)\"", buf))
+    for m in re.finditer(rb"\{id:(?:\"([^\"]+)\"|[\w$]+\.([A-Z0-9_]+)),name:\"[^\"]*\"[^\x00]{0,3000}?reasoningEffort:\{supported:\[([^\]]*)\],default:\"([^\"]*)\"", buf):
+        if b"{id:" in m.group(0)[4:]:
+            continue   # ran into the next model: this one sets no effort
+        model_id = (m.group(1) or consts.get(m.group(2), m.group(2))).decode()
+        levels = [v.strip(b"\" ").decode() for v in m.group(3).split(b",") if v.strip()]
+        levels = ",".join(levels) if levels and levels != ["none"] else "-"
+        built.setdefault(model_id, (levels, m.group(4).decode() if levels != "-" else "-"))
+except (OSError, TypeError, ValueError):
+    pass
 accepted, listing = [], False
 for line in os.environ["ACCEPTED"].splitlines():
     if re.match(r"Available (built-in|custom) models:$", line):
@@ -142,7 +162,7 @@ for line in os.environ["ACCEPTED"].splitlines():
                 accepted.append(model_id)
         listing = False
 for model_id in accepted or [model_id for model_id, _ in ids]:
-    print(model_id, efforts.get(model_id, "?"))
+    print(model_id, *efforts.get(model_id) or built.get(model_id) or ("?", "-"))
 '
 }
 
@@ -171,6 +191,8 @@ SCOPE="branch"
 CHECKS=""
 SESSION=""
 MODELS=""        # comma list: fan out, one child run per model
+EFFORTS=""       # --efforts: list levels instead of running ("all" or a model)
+WHATS_NEW=""     # --whats-new: new, discounted and deprecated models, then exit
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -193,11 +215,141 @@ while [ $# -gt 0 ]; do
         printf '%-9s %-18s %s\n' "$s" "$1" "${2:-droid default}"
       done
       exit 0 ;;
+    --efforts)
+      case "${2:-}" in ""|-*) EFFORTS="all"; shift ;; *) EFFORTS="$2"; shift 2 ;; esac ;;
+    --whats-new) WHATS_NEW=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1 (--help for usage)" ;;
     *) ASK="${ASK:+$ASK }$1"; shift ;;
   esac
 done
+
+# --efforts and --whats-new answer "which model, at what level" without a git
+# repo or a run. Both read what droid's /model picker shows beside each model
+# from the registry in the droid binary (see catalog): the "new" badge (until a
+# date), an active promotion (a discount off its token-price multiplier, until a
+# date) and a deprecation with the model droid falls back to. These fields are
+# droid internals, not an interface: a row it cannot read just shows less.
+if [ -n "$EFFORTS" ] || [ -n "$WHATS_NEW" ]; then
+  command -v droid >/dev/null || die "droid CLI not installed"
+  CAT="$(catalog || true)"
+  [ -n "$CAT" ] || die "could not read droid's model list"
+  SC="$(for s in $SHORTCUTS; do echo "$s $(shortcut "$s")"; done)"
+  want="$EFFORTS"; spec="$(shortcut "$want" || true)"; [ -z "$spec" ] || want="${spec%% *}"
+  CAT="$CAT" SC="$SC" DROID_VERSION="$(droid --version 2>/dev/null || true)" python3 -c '
+import datetime as dt, mmap, os, re, shutil, sys
+mode, want = sys.argv[1:3]
+now = dt.datetime.now(dt.timezone.utc)
+day = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+cat = [l.split() for l in os.environ["CAT"].splitlines() if l.strip()]
+names = {}
+for l in os.environ["SC"].splitlines():
+    s, mid, *pin = l.split()
+    names.setdefault(mid, []).append(s + (" " + pin[0] if pin else ""))
+info, family = {}, {}
+try:
+    with open(os.path.realpath(shutil.which("droid")), "rb") as f:
+        t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    # Match from the literal: a leading [\w$]+ makes the scan of the binary take seconds.
+    promos = {}
+    for m in re.finditer(rb"=\{discount:([\d.]+),startsAt:new Date\(\"([^\"]+)\"\),expiresAt:new Date\(\"([^\"]+)\"\),label:\"([^\"]*)\"\}", t):
+        name = re.search(rb"([\w$]+)$", t[max(0, m.start() - 40):m.start()])
+        if name:
+            promos[name.group(1).decode()] = (float(m.group(1)), day(m.group(2).decode()), day(m.group(3).decode()), m.group(4).decode())
+    # Keys are quoted ("gpt-6-sol":{id:...) or bare (inkling:{id:...).
+    for m in re.finditer(rb":\{id:\"([\w.:-]+)\",name:", t):
+        mid = m.group(1).decode()
+        key = re.search(rb"[{,]\"?([\w.:-]+)\"?$", t[max(0, m.start() - 80):m.start()])
+        if not key or key.group(1) != m.group(1) or mid in info:
+            continue
+        body = t[m.end():m.end() + 4000].decode("latin-1")
+        nxt = re.search(r",\"?[\w.:-]+\"?:\{id:\"", body)
+        body = body[:nxt.start()] if nxt else body
+        g = lambda rx: (re.search(rx, body) or [None, None])[1]
+        price = g(r"cost:\{tokenMultiplier:([\d.]+)")
+        promo = None
+        for ref in (g(r"promotions:\[([^\]]*)\]") or "").split(","):
+            p = promos.get(ref.strip())
+            if p and p[1] <= now < p[2]:
+                promo = p
+                break
+        new = g(r"newUntil:new Date\(\"([^\"]+)\"\)")
+        info[mid] = {
+            "price": float(price) if price else None, "promo": promo,
+            "new": new[:10] if new and now < day(new) else None,
+            "dep": g(r"deprecation:\{date:\"([^\"]+)\""), "fallback": g(r"fallbackModelId:\"([^\"]+)\""),
+        }
+    # Families, newest generation first: {generations:[{id:"glm-5.3"},{id:"glm-5.2",variants:["glm-5.2-fast"]},...]}
+    first = t.find(b"generations:[{id:")
+    if first >= 0:
+        for fam in re.findall(rb"generations:\[((?:\{[^{}]*\},?)+)\]", t[first:first + 30000]):
+            gens = [(g.decode(), [v.decode() for v in re.findall(rb"\"([^\"]+)\"", vs)])
+                    for g, vs in re.findall(rb"\{id:\"([^\"]+)\"(?:,variants:\[([^\]]*)\])?", fam)]
+            for rank, (g, variants) in enumerate(gens):
+                for mid in [g] + variants:
+                    family.setdefault(mid, (rank, gens))
+except (OSError, TypeError, ValueError):
+    pass
+fmt = lambda x: ("%g" % x) + "x"
+def price(mid):
+    i = info.get(mid) or {}
+    if i.get("price") is None:
+        return "-"
+    return fmt(i["price"] * (1 - i["promo"][0])) if i.get("promo") else fmt(i["price"])
+def notes(mid):
+    i, out = info.get(mid) or {}, []
+    if i.get("new"):
+        out.append("new until " + i["new"])
+    if i.get("promo"):
+        d, _, end, label = i["promo"]
+        out.append("%s until %s (was %s)" % (label, end.strftime("%Y-%m-%d"), fmt(i["price"])))
+    if i.get("dep"):
+        out.append("deprecated %s -> %s" % (i["dep"], i.get("fallback") or "no fallback declared"))
+    return "; ".join(out)
+sc = lambda mid: ",".join(names.get(mid, []))
+if mode == "efforts":
+    rows = [r for r in cat if want == "all" or r[0] == want]
+    if not rows:
+        sys.exit(1)
+    print("%-28s %-8s %-38s %-12s %-7s %s" % ("model", "default", "supported", "shortcut", "price", "notes"))
+    for mid, levels, default in rows:
+        levels = {"-": "(no reasoning setting)", "?": "(droid gives none)"}.get(levels, levels)
+        print(("%-28s %-8s %-38s %-12s %-7s %s" % (mid, default, levels, sc(mid), price(mid), notes(mid))).rstrip())
+    sys.exit(0)
+accepted = [r[0] for r in cat]
+def section(title, pick, line):
+    hits = [m for m in accepted if pick(info.get(m) or {})]
+    print(title)
+    for m in hits:
+        print("  %-26s %-14s %s" % (m, sc(m) or "-", line(m, info[m])))
+    if not hits:
+        print("  (none)")
+    print()
+print("droid models as of %s UTC (droid %s), from the /model picker data\n" % (now.strftime("%Y-%m-%d %H:%M"), os.environ.get("DROID_VERSION", "?")))
+section("NEW", lambda i: i.get("new"), lambda m, i: "new until " + i["new"])
+section("ON SALE", lambda i: i.get("promo"), lambda m, i: "%s: %s -> %s until %s" % (
+    i["promo"][3], fmt(i["price"]), price(m), i["promo"][2].strftime("%Y-%m-%d")))
+section("DEPRECATED", lambda i: i.get("dep"), lambda m, i: "since %s -> %s" % (
+    i["dep"], i.get("fallback") or "no fallback declared"))
+print("SHORTCUTS against the model families droid lists (newest generation first)")
+for l in os.environ["SC"].splitlines():
+    s, mid = l.split()[:2]
+    rank, gens = family.get(mid, (None, []))
+    dep = (info.get(mid) or {}).get("dep")
+    if rank is None:
+        verdict = "(no family listed)"
+    elif rank == 0:
+        verdict = "newest in its family"
+    else:
+        verdict = "NEWER: " + ", ".join(g for g, _ in gens[:rank])
+    if dep:
+        verdict += "; DEPRECATED -> " + ((info.get(mid) or {}).get("fallback") or "no fallback declared")
+    line = " > ".join(g for g, _ in gens[:4]) + (" > ..." if len(gens) > 4 else "")
+    print("  %-9s %-22s %s" % (s, mid, verdict) + ("   [" + line + "]" if len(gens) > 1 else ""))
+' "$([ -n "$WHATS_NEW" ] && echo new || echo efforts)" "${want:-all}" \
+    || die "droid has no model '$EFFORTS' (shortcuts: $SHORTCUTS)"
+  exit 0
+fi
 
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
