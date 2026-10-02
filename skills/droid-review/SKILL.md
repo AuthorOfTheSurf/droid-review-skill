@@ -34,7 +34,8 @@ is exactly an effort level (`high`, `max`, …) overrides that model's level, an
 the rest is optional emphasis on top of `/review`. So `/droid-review luna the
 auth changes` is Luna at its pinned level, weighted toward auth. `--models`
 prints the shortcuts and their levels, `--efforts [model]` every level a model
-takes and its default; an effort the model does not support
+takes and its default, `--whats-new` what droid marks new, on sale or
+deprecated; an effort the model does not support
 fails before droid runs, so relay that message. Only when the user names a
 model in prose the script cannot read ("use the Gemini one") translate it to
 the shortcut or `--model`. The base branch is detected (origin/HEAD, else
