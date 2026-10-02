@@ -40,9 +40,13 @@
 #
 # Prints two lines on stdout: the review file path and the droid session id.
 # Exit 0 when droid finished; non-zero when it did not (auth, model, timeout).
-# The review lands in .droid-reviews/ (gitignore that) as markdown, next to a
-# .log of the same name that droid's progress streams into while it runs
-# (one line per tool call: elapsed, turn, tool and target) — tail it to watch.
+# The review lands in .droid-reviews/ (which ignores itself in git) as markdown,
+# next to a .log of the same name that droid's progress streams into while it
+# runs (one line per tool call: elapsed, turn, tool and target) — tail it to
+# watch — and a .json of the run: status (running/ok/failed/interrupted), start
+# and finish, the commit, branch and base it reviewed, and the uncommitted
+# changes it saw. Compare those with the repo now to tell how fresh it is; the
+# review file's header says the same in words.
 #
 # Fan-out: --models a,b,c (or a comma list as the ask's first word) runs one
 # child of this script per model, in parallel, each with that model's shortcut
@@ -471,6 +475,8 @@ fi
 
 OUT_DIR=".droid-reviews"
 mkdir -p "$OUT_DIR"
+# The folder ignores itself, so no repo needs a .gitignore line for it.
+[ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
 STAMP="${_DROID_REVIEW_STAMP:-$(date +%Y%m%d-%H%M%S)}"   # a fan-out shares one stamp
 BRANCH="$(git branch --show-current | tr '/' '-')"
 # The model is in the name so parallel runs on different models are told apart at a
@@ -508,6 +514,179 @@ claim_log() {
     n=$((n + 1))
   done
   OUT="$OUT_BASE.md"
+}
+
+# Run metadata: <base>.json beside the review and its log. It holds what an
+# agent (or the droid-review-ui mod) needs to tell how fresh a review is — the
+# commit, branch and base it ran against, the uncommitted changes it saw, when
+# it started and finished — and whether it is still going (status, pid).
+#   run_meta start  <json>          before droid runs: status "running"
+#   run_meta finish <json> <result> after: status ok/failed, writes the review
+#                                   file from it and prints its path + session
+#   run_meta status <json> <status> just the status (interrupted)
+# Each write replaces the file atomically. An "interrupted" status is kept by a
+# later finish: the parent of a fan-out sets it while the child may still be
+# writing its own end.
+run_meta() {
+  ROOT="$ROOT" MODE="$MODE" SCOPE="$SCOPE" BASE="$BASE" WHAT="$WHAT" \
+  MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
+  SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
+  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" \
+  python3 - "$@" <<'PY'
+import datetime, json, os, re, subprocess, sys
+mode, meta = sys.argv[1], sys.argv[2]
+env = lambda k: os.environ.get(k) or None
+
+def now():
+    return datetime.datetime.now().astimezone()
+
+def git(*args, raw=False):
+    r = subprocess.run(("git",) + args, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout if raw else r.stdout.strip()
+
+def load():
+    try:
+        with open(meta) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+def save(m):
+    tmp = "%s.%d.tmp" % (meta, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(m, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, meta)
+
+def ended(m, status):
+    t = now()
+    m["finished"] = t.isoformat(timespec="seconds")
+    if m.get("started"):
+        m["duration_s"] = int((t - datetime.datetime.fromisoformat(m["started"])).total_seconds())
+    head = git("rev-parse", "HEAD")
+    if head and head != m.get("head"):
+        m["head_at_finish"] = head
+    if m.get("status") != "interrupted":
+        m["status"] = status
+
+def worktree():
+    c = {"staged": 0, "unstaged": 0, "untracked": 0}
+    for line in (git("status", "--porcelain=v1", raw=True) or "").splitlines():
+        if line.startswith("??"):
+            c["untracked"] += 1
+            continue
+        c["staged"] += line[0] != " "
+        c["unstaged"] += line[1] != " "
+    return c
+
+def shortstat(*args):
+    s = git("diff", "--shortstat", *args) or ""
+    out = {}
+    for key, word in (("files", "file"), ("insertions", "insertion"), ("deletions", "deletion")):
+        m = re.search(r"(\d+) %s" % word, s)
+        out[key] = int(m.group(1)) if m else 0
+    return out
+
+if mode == "start":
+    m = {
+        "kind": env("MODE"), "status": "running",
+        "started": now().isoformat(timespec="seconds"), "finished": None,
+        "pid": int(os.environ["PID"]),
+        "model": env("MODEL"), "effort": env("EFFORT"),
+        "droid_version": None,
+        "asked": env("ASK"), "checks": env("CHECKS"),
+        "continues": {"session": env("SESSION"), "review": env("SESSION_FILE")} if env("SESSION") else None,
+        "repo": env("ROOT"), "branch": git("branch", "--show-current") or None,
+        "head": git("rev-parse", "HEAD"), "head_subject": git("log", "-1", "--format=%s"),
+        "scope": env("SCOPE"), "scope_text": env("WHAT"), "base": None,
+        "uncommitted": worktree(),
+        "session": None, "turns": None,
+        "files": {"review": None, "log": env("LOG"), "meta": meta},
+    }
+    try:
+        r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            m["droid_version"] = r.stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if m["scope"] == "branch":
+        base = env("BASE")
+        mb = git("merge-base", base, "HEAD")
+        m["base"] = {
+            "ref": base, "sha": git("rev-parse", base), "merge_base": mb,
+            "ahead": int(git("rev-list", "--count", base + "..HEAD") or 0),
+            "behind": int(git("rev-list", "--count", "HEAD.." + base) or 0),
+        }
+        m["diff"] = shortstat(mb) if mb else None   # merge-base to the working tree
+    else:
+        m["diff"] = shortstat("HEAD")
+    save(m)
+
+elif mode == "status":
+    m = load()
+    m["status"] = sys.argv[3]
+    ended(m, sys.argv[3])
+    save(m)
+
+elif mode == "finish":
+    m, out = load(), env("OUT")
+    text = open(sys.argv[3]).read().strip()
+    try:
+        d = json.loads(text.splitlines()[-1])
+    except Exception:
+        d = {"is_error": True, "result": "droid did not return JSON:\n" + text[-2000:]}
+    m["session"] = d.get("session_id") or m.get("session")
+    if d.get("is_error"):
+        ended(m, "failed")
+        m["error"] = str(d.get("result"))[:2000]
+        save(m)
+        prefix = "" if m["error"].startswith("droid did not") else "droid reported an error: "
+        sys.stderr.write(prefix + m["error"] + "\n")
+        sys.exit(1)
+    ended(m, "ok")
+    m["turns"] = d.get("num_turns")
+    m["droid_duration_s"] = (d.get("duration_ms") or 0) // 1000
+    m["files"]["review"] = out
+    short = lambda sha: (sha or "?")[:7]
+    lines = ["- started: %s" % m.get("started"),
+             "- finished: %s (%ss)" % (m["finished"], m.get("duration_s", "?")),
+             "- model: %s (reasoning %s)" % (m.get("model"), m.get("effort") or "droid default"),
+             "- scope: %s" % m.get("scope_text")]
+    where = "%s at %s" % (m.get("branch") or "detached HEAD", short(m.get("head")))
+    if m.get("head_subject"):
+        where += ' "%s"' % m["head_subject"]
+    lines.append("- branch: %s (%s)" % (where, os.path.basename(m.get("repo") or "")))
+    b = m.get("base")
+    if b:
+        lines.append("- base: %s at %s; merge-base %s; %d ahead, %d behind"
+                     % (b["ref"], short(b["sha"]), short(b["merge_base"]), b["ahead"], b["behind"]))
+    u = m.get("uncommitted") or {}
+    lines.append("- uncommitted at start: %d staged, %d unstaged, %d untracked files"
+                 % (u.get("staged", 0), u.get("unstaged", 0), u.get("untracked", 0)))
+    df = m.get("diff")
+    if df:
+        lines.append("- diff reviewed: %d files, +%d -%d (tracked files; untracked not counted)"
+                     % (df["files"], df["insertions"], df["deletions"]))
+    if m.get("head_at_finish"):
+        lines.append("- HEAD moved while it ran: %s -> %s" % (short(m.get("head")), short(m["head_at_finish"])))
+    if m.get("asked"):
+        lines.append("- asked: %s" % m["asked"])
+    c = m.get("continues")
+    if c:
+        lines.append("- continues: %s" % (c.get("review") or c.get("session")))
+    lines.append("- droid: %s" % (m.get("droid_version") or "?"))
+    lines.append("- metadata: %s" % meta)
+    lines.append("- session: %s" % m["session"])
+    lines.append("- turns: %s, %ss" % (m["turns"], m["droid_duration_s"]))   # last: words() reads after it
+    with open(out, "w") as f:
+        f.write("# droid %s\n\n" % ("feedback" if m.get("kind") == "feedback" else "review"))
+        f.write("\n".join(lines) + "\n\n" + (d.get("result") or "").strip() + "\n")
+    save(m)
+    print(out)
+    print(m["session"] or "")
+PY
 }
 
 # ---- Fan-out -----------------------------------------------------------------
@@ -570,7 +749,8 @@ fan_out() {
 
   interrupted=""        # global, set from the trap
   trap 'interrupted=1' INT TERM
-  local t0=$SECONDS drawn=""
+  local t0=$SECONDS t0_epoch drawn=""
+  t0_epoch="$(date +%s)"
   say() { [ -n "$board" ] || printf '%-9s %s\n' "${NAMES[$1]}" "$2" >&2; }
   while :; do
     now=$((SECONDS - t0))
@@ -630,12 +810,17 @@ fan_out() {
         disown "${PIDS[i]}" 2>/dev/null || true   # no "Terminated" job notice
         kill_tree "${PIDS[i]}"
         STATE[i]="interrupted"; INFO[i]="interrupted"; DUR[i]=$now
-        [ -z "${LOGS[i]}" ] || echo "[$(elapsed "$now")] interrupted" >> "${LOGS[i]}"
+        if [ -n "${LOGS[i]}" ]; then
+          echo "[$(elapsed "$now")] interrupted" >> "${LOGS[i]}"
+          run_meta status "${LOGS[i]%.log}.json" interrupted || true
+        fi
         say "$i" "interrupted  $(elapsed "$now")"
       done
       break
     fi
-    sleep 1
+    # A TERM to the whole process group kills this sleep too; under set -e
+    # that would end the parent before the trap above got to tidy up.
+    sleep 1 || true
   done
   trap - INT TERM
 
@@ -647,8 +832,10 @@ fan_out() {
   {
     echo "# droid $([ "$MODE" = feedback ] && echo feedback || echo review), ${n} models"
     echo
-    echo "- when: $(date +%Y-%m-%dT%H:%M:%S)"
+    echo "- started: $(date -r "$t0_epoch" +%Y-%m-%dT%H:%M:%S%z)"
+    echo "- finished: $(date +%Y-%m-%dT%H:%M:%S%z)"
     echo "- scope: $WHAT"
+    echo "- branch: ${BRANCH:-detached HEAD} at $(git rev-parse --short HEAD)"
     [ -z "$ASK" ] || echo "- asked: $ASK"
     [ -z "$EFFORT" ] || echo "- effort: $EFFORT"
     echo
@@ -834,6 +1021,14 @@ if [ -n "${_DROID_REVIEW_CHILD:-}" ]; then
 else
   echo "live log: $LOG" >&2
 fi
+META="$OUT_BASE.json"
+run_meta start "$META"
+# Interrupted (Ctrl-C, or TERM from a fan-out parent): say so in the log and
+# the metadata, so nothing reads this run as still going. bash runs the trap
+# once the droid pipeline it is waiting on has ended.
+# A fan-out child leaves the log line to its parent, which writes one too.
+trap '[ -n "${_DROID_REVIEW_CHILD:-}" ] || echo "[$(elapsed "$SECONDS")] interrupted" >> "$LOG"
+      run_meta status "$META" interrupted; exit 130' INT TERM
 
 set +e
 droid "${DROID_ARGS[@]}" "$PROMPT" | progress_filter "$LOG" "$JSON" "$MODEL" "$EFFORT"
@@ -841,33 +1036,7 @@ STATUS=${PIPESTATUS[0]}
 set -e
 
 claim_out
-if ! python3 - "$JSON" "$OUT" "$MODEL" "$EFFORT" "$WHAT" "$MODE" "$ASK" <<'PY'
-import json, sys, datetime
-raw, out, model, effort, what, mode, ask = sys.argv[1:8]
-text = open(raw).read().strip()
-try:
-    d = json.loads(text.splitlines()[-1])
-except Exception:
-    sys.stderr.write("droid did not return JSON:\n" + text[-2000:] + "\n")
-    sys.exit(1)
-if d.get("is_error"):
-    sys.stderr.write("droid reported an error: " + str(d.get("result"))[:2000] + "\n")
-    sys.exit(1)
-body = (d.get("result") or "").strip()
-with open(out, "w") as f:
-    f.write("# droid %s\n\n" % ("feedback" if mode == "feedback" else "review"))
-    f.write(f"- when: {datetime.datetime.now().isoformat(timespec='seconds')}\n")
-    f.write(f"- model: {model} (reasoning {effort or 'droid default'})\n")
-    f.write(f"- scope: {what}\n")
-    if ask:
-        f.write(f"- asked: {ask}\n")
-    f.write(f"- session: {d.get('session_id')}\n")
-    f.write(f"- turns: {d.get('num_turns')}, {d.get('duration_ms', 0)//1000}s\n\n")
-    f.write(body + "\n")
-print(out)
-print(d.get("session_id") or "")
-PY
-then rm -f "$OUT"; exit 1; fi
+run_meta finish "$META" "$JSON" || { rm -f "$OUT"; exit 1; }
 
 exit "$STATUS"
 }

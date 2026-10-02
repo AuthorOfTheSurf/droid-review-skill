@@ -13,11 +13,13 @@
 #   STUB_DROID_MODE=fail-silent  completion, then exit 1 with nothing on stderr
 #   STUB_DROID_MODE=error        an error event; exit 1
 #   STUB_DROID_MODE=garbage      a line that is not JSON; exit 1
+# STUB_DROID_DELAY=<seconds> sleeps before each event (default 0), for a run
+# long enough to watch (the droid-review-ui strip) or to interrupt.
 set -euo pipefail
 
 for a in "$@"; do
   case "$a" in
-    --help|--list-tools)
+    --help|--list-tools|--version)
       [ -n "${REAL_DROID:-}" ] && exec "$REAL_DROID" "$@"
       exit 1 ;;
   esac
@@ -33,7 +35,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-ev() { printf '%s\n' "$1"; }
+ev() { sleep "${STUB_DROID_DELAY:-0}"; printf '%s\n' "$1"; }
 case "${STUB_DROID_MODE:-ok}" in
   ok)
     ev "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"model\":\"$model\",\"reasoning_effort\":\"$effort\"}"

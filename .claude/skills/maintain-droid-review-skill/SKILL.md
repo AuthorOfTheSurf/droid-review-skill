@@ -152,30 +152,23 @@ and check each pinned effort appears in that model's `--efforts` levels.
 ## 4. Regression — run the script's paths against a stub droid
 
 `stub-droid` (next to this file) answers `exec` runs with canned stream-json
-and forwards `--help` / `--list-tools` to the real droid, so this costs nothing.
-Run in a throwaway repo so `.droid-reviews/` lands there:
+and forwards `--help` / `--list-tools` / `--version` to the real droid, so this
+costs nothing. `regress.sh` runs every path against it in a throwaway repo and
+checks what each leaves behind:
 
 ```bash
-r="$(git rev-parse --show-toplevel)"; d="$r/skills/droid-review/droid-review.sh"
-t="$(mktemp -d)"; mkdir -p "$t/bin" "$t/repo"
-ln -sf "$r/.claude/skills/maintain-droid-review-skill/stub-droid" "$t/bin/droid"
-export REAL_DROID="$(command -v droid)"
-cd "$t/repo" && git init -q -b master && git commit -q --allow-empty -m a \
-  && git checkout -q -b feat && echo x > f && git add f && git commit -q -m b
-run() { PATH="$t/bin:$PATH" "$@"; echo "exit=$?"; }
-run "$d" --base master                          # review path + session id, exit 0
-run "$d" --base master --session last           # "continuing ...", same model, exit 0
-run "$d" --base master --models glm,gemini      # both ok, table + -multi.md index, exit 0
-STUB_DROID_MODE=fail-silent run "$d" --base master --models glm,gemini  # both failed, index written, exit 1
-STUB_DROID_MODE=error run "$d" --base master    # "droid reported an error", exit non-zero
-run "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane"  # feedback path, exit 0
-cd "$r"
+.claude/skills/maintain-droid-review-skill/regress.sh
 ```
 
-Each line's expectation is in its comment; any other outcome is a script bug.
-Also run `bash -n` and `shellcheck` on both scripts (shellcheck: only report new
-warnings). Add a stub mode when a fix covers a failure the stub cannot yet
-produce.
+It covers a review, `--session last`, a fan-out, a fan-out where both fail
+silently, droid reporting an error, droid printing garbage, an interrupt of a
+single run and of a fan-out (TERM to the whole process group), and
+droid-feedback — each for exit code, stdout, the review header and the run
+metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
+is a script bug, or a contract the check encodes that changed on purpose:
+then change the check in the same commit. Also run `bash -n` and `shellcheck`
+on both scripts (shellcheck: only report new warnings). When a fix covers a
+failure the stub cannot yet produce, add a stub mode and a check for it.
 
 ## 5. Docs agree with the script
 

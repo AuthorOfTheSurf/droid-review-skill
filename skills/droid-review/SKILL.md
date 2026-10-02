@@ -47,7 +47,8 @@ this repo keeps that list somewhere else, `--checks <path>` inlines that file
 instead.
 
 The script prints two lines: the markdown file the review was saved to
-(under `.droid-reviews/`, gitignored) and the droid **session id**. Keep the
+(under `.droid-reviews/`, which ignores itself in git) and the droid **session
+id**. Keep the
 session id. A review takes a few minutes; run the script with a long timeout
 or in the background. Default model is `glm` (`glm-5.3-flash` at reasoning
 `high`); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
@@ -58,6 +59,15 @@ report the stderr text to the user rather than reviewing nothing.
 While it runs, droid's progress streams into a `.log` beside the review file
 (the script prints `live log: <path>` on stderr): one line per tool call with
 elapsed time, turn, tool and target. `tail` it to see what the reviewer is doing.
+
+**How fresh is a review.** Each run also writes a `.json` of the same name, and
+the review file's header says the same in words: when it started and finished,
+the branch and commit (`head`) it reviewed, the base and merge-base, and how
+many staged / unstaged / untracked files were uncommitted. `status` is
+`running` while it goes, then `ok`, `failed` or `interrupted`. Before triaging
+a review you did not just run, compare its `head` with `git rev-parse HEAD`
+and its uncommitted counts with `git status`: commits or changes since then can
+have fixed a finding or made it stale, so say which.
 
 ### Several models at once
 

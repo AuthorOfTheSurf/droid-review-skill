@@ -77,35 +77,29 @@ A run takes anywhere from ~40s to ~8 minutes depending on model, branch size, an
 
 Install both skills together — `droid-feedback` is a thin wrapper around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
 
-Per project:
+The usual way: clone this repo and link both skills into your personal skills
+folder, so a `git pull` here updates every project:
 
 ```bash
-mkdir -p .claude/skills
-cp -r skills/droid-review skills/droid-feedback .claude/skills/
-echo '.droid-reviews/' >> .gitignore
-```
-
-Or globally, for every project at once:
-
-```bash
-mkdir -p ~/.claude/skills
-cp -r skills/droid-review skills/droid-feedback ~/.claude/skills/
-```
-
-*My recommendation*, symlink them from a clone of this repo, so a `git pull` (or an
-edit here) reaches every project with nothing to copy:
-
-```bash
+git clone https://github.com/AuthorOfTheSurf/droid-review-skill
+cd droid-review-skill
 mkdir -p ~/.claude/skills
 ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" ~/.claude/skills/
 ```
 
-Run `git pull` in the clone now and then to pick up new model shortcuts. A copy
-made with `cp` never updates.
+Run `git pull` in the clone now and then to pick up new model shortcuts. To
+remove it, delete the two links.
 
-A global install still writes reviews to `.droid-reviews/` in whichever repo
-you run it from, so add that to each repo's `.gitignore` or to your global git
-excludes file.
+Or copy them into one project (a copy never updates):
+
+```bash
+mkdir -p .claude/skills
+cp -r path/to/droid-review-skill/skills/droid-review path/to/droid-review-skill/skills/droid-feedback .claude/skills/
+```
+
+Reviews land in `.droid-reviews/` in whichever repo you run from. The folder
+ignores itself (the script puts a `.gitignore` of `*` in it), so no repo needs
+a line for it.
 
 Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review` and `/droid-feedback` autocomplete and be available
 
@@ -178,6 +172,12 @@ It prints the file it saved to and the droid session id; paste both into
 whatever you're using to do the triage. While droid works, its progress streams
 into a `.log` of the same name (one line per tool call: elapsed, turn, tool,
 target), so `tail -f` shows what it is doing.
+
+Each run also writes a `.json` of the same name: its status (`running`, then
+`ok`, `failed` or `interrupted`), when it started and finished, the branch,
+commit and base it reviewed, and how many files were staged, unstaged and
+untracked at the time. The review file's header carries the same facts, so you
+(or your agent) can tell how fresh an old review is against the repo now.
 
 **Several models.** `--models a,b,c` (or a comma list as the first word) runs
 the same ask on each model in parallel, each at its shortcut's effort. On a
