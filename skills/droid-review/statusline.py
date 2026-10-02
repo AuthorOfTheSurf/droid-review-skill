@@ -2,9 +2,9 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ◐ droid review glm-5.3-flash      ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
-    ◐ droid review 2 gemini-3.8-flash ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-    ✓ droid review gpt-6-luna max     done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+    ◐ droid review   · glm-5.3-flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
+    ◐ droid review 2 · gemini-3.8-flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+    ✓ droid review   · gpt-6-luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the last line of its .log (turn and
@@ -210,17 +210,22 @@ def rows(folder, now, columns):
     if not shown:
         return []
     shown.sort(key=lambda r: r.get("started") or "")
-    # Pad "<model> <effort>" to the widest one shown, so stacked rows line up.
-    width = max(len(m.get("model") or "?") + len(" " + m["effort"] if m.get("effort") else "") for m in shown)
-    for m in shown:
-        status = m["_status"]
+    # Pad both columns to the widest shown, so stacked rows line up:
+    # "droid review 2 · grok-4.7" over "droid review   · glm-5.3-flash high".
+    def label_of(m):
         label = "droid " + ("feedback" if m.get("kind") == "feedback" else "review")
         if (m.get("round") or 1) > 1:
             label += " %d" % m["round"]   # a re-check: short, and timed against re-checks
+        return label
+    lwidth = max(len(label_of(m)) for m in shown)
+    width = max(len(m.get("model") or "?") + len(" " + m["effort"] if m.get("effort") else "") for m in shown)
+    for m in shown:
+        status = m["_status"]
+        label = label_of(m)
         model = m.get("model") or "?"
         effort = (" " + m["effort"]) if m.get("effort") else ""
-        pad = " " * (width - len(model + effort))
-        who = "%s %s%s%s%s%s" % (label, TEAL, model, RESET + GREY, effort, RESET) + pad
+        who = "%s%s%s · %s%s%s%s%s%s" % (label, " " * (lwidth - len(label)), GREY, RESET + TEAL, model,
+                                       RESET + GREY, effort, RESET, " " * (width - len(model + effort)))
         if status == "running":
             if hist is None:
                 hist = history(folder, runs)

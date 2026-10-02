@@ -174,7 +174,7 @@ check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 
 wait
 after="$(sl)"
 # (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid review gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid review glm-5.3-flash .* done in '" _ "$after"
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid review *· gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid review *· glm-5.3-flash .* done in '" _ "$after"
 check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
 

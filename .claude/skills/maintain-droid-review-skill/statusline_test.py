@@ -86,7 +86,7 @@ class StatusLine(unittest.TestCase):
         self.f.run("a", log=["[0m01s] started glm-5.3-flash (reasoning high) session s",
                              "[0m20s] turn 3 · Execute git diff --stat"])
         [row] = self.f.rows()
-        self.assertIn("droid review glm-5.3-flash high", row)
+        self.assertIn("droid review · glm-5.3-flash high", row)
         self.assertIn("0:25", row)
         self.assertIn("turn 3 · Execute git diff --stat", row)
         self.assertNotIn("/ ~", row)   # no history: no estimate
@@ -145,9 +145,9 @@ class StatusLine(unittest.TestCase):
         self.f.run("b", round=3, kind="feedback", model="gemini-3.8-flash", log=["[0m20s] turn 1 · Read y"])
         self.f.run("c", round=1, model="grok-4.7", log=["[0m20s] turn 1 · Read z"])
         text = "\n".join(self.f.rows())
-        self.assertIn("droid review 2 glm-5.3-flash", text)
-        self.assertIn("droid feedback 3 gemini-3.8-flash", text)
-        self.assertIn("droid review grok-4.7", text)
+        self.assertRegex(text, r"droid review 2 +· glm-5\.3-flash")
+        self.assertRegex(text, r"droid feedback 3 +· gemini-3\.8-flash")
+        self.assertRegex(text, r"droid review +· grok-4\.7")   # padded to the widest label
 
     def test_rechecks_are_timed_against_rechecks(self):
         self.f.run("first", status="ok", finished=iso(9999), duration_s=300, turns=40)
@@ -161,13 +161,14 @@ class StatusLine(unittest.TestCase):
 
     def test_feedback_runs_are_labelled(self):
         self.f.run("a", kind="feedback", log=["[0m20s] turn 2 · Read x"])
-        self.assertIn("droid feedback glm-5.3-flash", self.f.rows()[0])
+        self.assertIn("droid feedback · glm-5.3-flash", self.f.rows()[0])
 
     def test_rows_line_up_across_models(self):
         self.f.run("a", started=iso(30), log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", started=iso(20), model="gemini-3.8-flash", effort=None,
                    log=["[0m20s] turn 2 · Read y"])
         a, b = self.f.rows()
+        self.assertEqual(a.index("·"), b.index("·"))   # the delimiter lines up
         # The bar starts at the same column in both rows.
         col = lambda r: re.search(r"[▓░]", r).start()
         self.assertEqual(col(a), col(b))
@@ -242,7 +243,7 @@ class Command(unittest.TestCase):
                                 'import sys,json; print("MINE", json.load(sys.stdin)["workspace"]["current_dir"])')
             lines = r.stdout.splitlines()
             self.assertEqual(lines[0], "MINE " + f.root)
-            self.assertIn("droid review glm-5.3-flash", sl.ANSI.sub("", lines[1]))
+            self.assertIn("droid review · glm-5.3-flash", sl.ANSI.sub("", lines[1]))
         finally:
             f.close()
 
