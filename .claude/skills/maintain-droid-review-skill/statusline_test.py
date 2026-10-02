@@ -271,6 +271,14 @@ class Command(unittest.TestCase):
                                 "--", "PREV_VAR=set", sys.executable, "-c",
                                 'import os; print("PREV", os.environ["PREV_VAR"])')
             self.assertEqual(r.stdout, "PREV set\n")
+            r = self.run_script(json.dumps({"workspace": {"current_dir": d}}),   # value with a space
+                                "--", "PREV_VAR=one two", "B=x=y", sys.executable, "-c",
+                                'import os; print("PREV", os.environ["PREV_VAR"], os.environ["B"])')
+            self.assertEqual(r.stdout, "PREV one two x=y\n")
+
+    def test_requote_leaves_assignments_as_assignments(self):
+        self.assertEqual(sl.requote(["A=one two", "cmd", "X=1"]), "A='one two' cmd X=1")
+        self.assertEqual(sl.requote(["python3", "-c", 'print("x")']), "python3 -c 'print(\"x\")'")
 
     def test_outside_a_repo_with_reviews_prints_only_the_previous_line(self):
         with tempfile.TemporaryDirectory() as d:

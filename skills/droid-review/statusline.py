@@ -259,6 +259,24 @@ def rows(folder, now, columns):
     return out
 
 
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def requote(words):
+    """Words the shell already split and unquoted, as a command line again.
+    Leading NAME=value words quote only the value: a quoted whole word would be
+    a command name to the shell, not an assignment."""
+    out, leading = [], True
+    for w in words:
+        a = ASSIGNMENT.match(w) if leading else None
+        if a:
+            out.append(a.group(0) + shlex.quote(w[a.end():]))
+        else:
+            leading = False
+            out.append(shlex.quote(w))
+    return " ".join(out)
+
+
 def main(argv):
     raw = sys.stdin.read()
     try:
@@ -274,7 +292,7 @@ def main(argv):
         cmd = argv[argv.index("--") + 1:]
         if cmd:
             try:
-                r = subprocess.run(cmd[0] if len(cmd) == 1 else shlex.join(cmd), shell=True, input=raw,
+                r = subprocess.run(cmd[0] if len(cmd) == 1 else requote(cmd), shell=True, input=raw,
                                    capture_output=True, text=True, timeout=5)
                 if r.stdout.strip():
                     sys.stdout.write(r.stdout if r.stdout.endswith("\n") else r.stdout + "\n")
