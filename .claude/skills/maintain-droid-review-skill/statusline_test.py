@@ -128,17 +128,20 @@ class StatusLine(unittest.TestCase):
         os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
         self.assertEqual(self.f.rows(), [])
 
-    def test_finished_rows_show_for_30_seconds(self):
-        self.f.run("ok", status="ok", finished=iso(10), duration_s=92, turns=14)
+    def test_finished_rows_show_for_a_minute(self):
+        self.f.run("ok", status="ok", finished=iso(50), duration_s=92, turns=14)
         self.f.run("bad", status="failed", finished=iso(5), duration_s=3, error="droid reported: no auth")
         self.f.run("int", status="interrupted", finished=iso(1), duration_s=7)
-        self.f.run("gone", status="ok", finished=iso(31), duration_s=1, turns=1)
+        self.f.run("gone", status="ok", finished=iso(61), duration_s=1, turns=1)
         rows = self.f.rows()
         self.assertEqual(len(rows), 3)
         text = "\n".join(rows)
-        self.assertIn("done in 1:32 · 14 turns · .droid-reviews/ok.md", text)
-        self.assertIn("failed after 0:03  droid reported: no auth", text)
+        self.assertIn("██████████  done in 1:32 · 14 turns · .droid-reviews/ok.md", text)
+        self.assertIn("██████████  failed after 0:03  droid reported: no auth", text)
         self.assertIn("interrupted after 0:07", text)
+        raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "done in" in r)
+        self.assertIn(sl.BOLD + "done in 1:32", raw)   # loud: bold, in green
+        self.assertIn(sl.GREEN, raw)
 
     def test_rechecks_say_their_round(self):
         self.f.run("a", round=2, log=["[0m20s] turn 2 · Read x"])

@@ -4,7 +4,7 @@ this repo, under whatever status line you already have.
 
     ◐ droid · review   · GLM-5.3-Flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
     ◐ droid · review 2 · Gemini 3.8 Flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-    ✓ droid · review   · GPT-6 Luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+    ✓ droid · review   · GPT-6 Luna max    ██████████  done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the last line of its .log (turn and
@@ -12,7 +12,7 @@ what droid is doing). "review 2" is a re-check (--session), the second round.
 The estimate is the median time of this model's finished runs of the same
 kind (first review or re-check) in the same folder; without any, the bar
 just pulses. A finished run stays for
-30 seconds with its result, then the row goes. Nothing running, nothing
+a minute with its result, then the row goes. Nothing running, nothing
 printed — your status line looks as it did.
 
 In ~/.claude/settings.json, with your current status line command (if any)
@@ -39,12 +39,12 @@ import sys
 import time
 from datetime import datetime
 
-SHOW_FINISHED_S = 30
+SHOW_FINISHED_S = 60
 # A run killed outright (SIGKILL, a reboot) never records its end, and its pid
 # can be reused; a log silent this long means it is not running any more.
 STALE_S = 3600
 SPIN = "◐◓◑◒"
-RESET = "\033[0m"
+RESET, BOLD = "\033[0m", "\033[1m"
 TEAL, GREEN, AMBER, RED, GREY = (
     "\033[38;2;94;196;182m", "\033[38;2;63;185;80m", "\033[38;2;230;180;80m",
     "\033[38;2;248;81;73m", "\033[38;5;245m")
@@ -141,6 +141,11 @@ def bar(elapsed, estimate, width=10):
     filled = min(width, int(width * elapsed / estimate))
     color = AMBER if elapsed > estimate else GREEN
     return color + "▓" * filled + GREY + "░" * (width - filled) + RESET
+
+
+def solid(color, width=10):
+    """The bar of a finished run: full, in its result's colour."""
+    return color + "█" * width + RESET
 
 
 def fit(text, columns):
@@ -243,18 +248,23 @@ def rows(folder, now, columns):
                                           bar(elapsed, estimate), timing, GREY + doing + RESET)
         else:
             took = clock(m["duration_s"]) if m.get("duration_s") is not None else "?"
+            # A finished run says so loudly: a solid bar where the progress
+            # bar was, and the result in bold, in the run's colour.
             if status == "ok":
                 review = (m.get("files") or {}).get("review") or ""
-                line = "%s %s  done in %s · %s turns · %s" % (
-                    GREEN + "✓" + RESET, who, took, m.get("turns"),
-                    GREY + link(review, os.path.join(os.path.dirname(folder), review)) + RESET)
+                line = "%s %s  %s  %s · %s turns · %s" % (
+                    GREEN + BOLD + "✓" + RESET, who, solid(GREEN), GREEN + BOLD + "done in " + took + RESET,
+                    m.get("turns"), GREY + link(review, os.path.join(os.path.dirname(folder), review)) + RESET)
             elif status == "failed":
                 err = " ".join(str(m.get("error") or "").split())
-                line = "%s %s  failed after %s  %s" % (RED + "✗" + RESET, who, took, GREY + err + RESET)
+                line = "%s %s  %s  %s  %s" % (RED + BOLD + "✗" + RESET, who, solid(RED),
+                                              RED + BOLD + "failed after " + took + RESET, GREY + err + RESET)
             elif status == "interrupted":
-                line = "%s %s  interrupted after %s" % (AMBER + "✗" + RESET, who, took)
+                line = "%s %s  %s  %s" % (AMBER + BOLD + "✗" + RESET, who, solid(AMBER),
+                                          AMBER + BOLD + "interrupted after " + took + RESET)
             else:
-                line = "%s %s  stopped (its process is gone)" % (AMBER + "✗" + RESET, who)
+                line = "%s %s  %s  %s" % (AMBER + BOLD + "✗" + RESET, who, solid(AMBER),
+                                          AMBER + BOLD + "stopped" + RESET + GREY + " (its process is gone)" + RESET)
         out.append(fit(line, columns))
     return out
 

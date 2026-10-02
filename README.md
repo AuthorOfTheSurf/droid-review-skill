@@ -201,14 +201,14 @@ the status line you already have:
 ```
 ◓ droid · review   · GLM-5.3-Flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
 ◓ droid · review 2 · Gemini 3.8 Flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-✓ droid · review   · GPT-6 Luna max    done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+✓ droid · review   · GPT-6 Luna max    ██████████  done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 ```
 
 "review 2" is a re-check (`--session`), the second round of that review; the
 review file's title and metadata carry the round too. The time after `~` is
 the median of that model's earlier finished runs of the same kind (first
 review or re-check) in the repo, and the bar fills toward it (amber once past it; a pulse until there is
-any history). A finished run stays 30 seconds with its result, then goes. With
+any history). A finished run stays a minute with a solid bar and its result in bold, then goes. With
 nothing running it prints nothing.
 
 It is one script, `skills/droid-review/statusline.py`, set in
