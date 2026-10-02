@@ -34,6 +34,18 @@ from it. Having it in the transcript is the point.
 If droid itself is behind, everything below is too; say so, and let the user
 decide whether to update droid first.
 
+**Are Claude Code mods on for this account yet?** A live strip of running
+reviews is planned as a mod (issue #4), but mods are rolling out remotely. Check
+from an empty directory, in one line of the report:
+
+```bash
+(cd "$(mktemp -d)" && claude plugin test 2>&1 | tail -1)
+```
+
+`no hooks module to load` means mods can load: tell the user the mod is
+unblocked. `turned off in this process` means not yet; `turned off here` means a
+setting blocks them.
+
 ## 2. Contracts — does the script still read droid?
 
 Each check is cheap and needs no model run unless it says so.
