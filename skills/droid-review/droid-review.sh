@@ -33,8 +33,7 @@
 # Without a model the default is glm. Efforts are checked against the levels
 # each model supports before droid runs; --efforts lists them.
 #
-# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
-# (the effort applies only when the model has no pinned level).
+# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT.
 #
 # Needs: droid (https://docs.factory.ai/droid-cli/quickstart), git, python3.
 #
@@ -215,10 +214,7 @@ while [ $# -gt 0 ]; do
         ""|-*|*[[:space:]]*) ;;
         *) MODELS="$2"; shift 2; continue ;;
       esac
-      for s in $SHORTCUTS; do
-        set -- $(shortcut "$s")
-        printf '%-9s %-18s %s\n' "$s" "$1" "${2:-droid default}"
-      done
+      for s in $SHORTCUTS; do printf '%-9s %s\n' "$s" "$(shortcut "$s")"; done
       exit 0 ;;
     --efforts)
       case "${2:-}" in ""|-*) EFFORTS="all"; shift ;; *) EFFORTS="$2"; shift 2 ;; esac ;;
@@ -240,7 +236,7 @@ if [ -n "$EFFORTS" ] || [ -n "$WHATS_NEW" ]; then
   CAT="$(catalog || true)"
   [ -n "$CAT" ] || die "could not read droid's model list"
   SC="$(for s in $SHORTCUTS; do echo "$s $(shortcut "$s")"; done)"
-  want="$EFFORTS"; spec="$(shortcut "$want" || true)"; [ -z "$spec" ] || want="${spec%% *}"
+  want="$(shortcut "$EFFORTS" || echo "$EFFORTS")"
   CAT="$CAT" SC="$SC" DROID_VERSION="$(droid --version 2>/dev/null || true)" python3 -c '
 import datetime as dt, mmap, os, re, shutil, sys
 mode, want = sys.argv[1:3]
@@ -249,8 +245,8 @@ day = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 cat = [l.split() for l in os.environ["CAT"].splitlines() if l.strip()]
 names = {}
 for l in os.environ["SC"].splitlines():
-    s, mid, *pin = l.split()
-    names.setdefault(mid, []).append(s + (" " + pin[0] if pin else ""))
+    s, mid = l.split()
+    names.setdefault(mid, []).append(s)
 info, family = {}, {}
 try:
     with open(os.path.realpath(shutil.which("droid")), "rb") as f:
@@ -436,15 +432,12 @@ if [ -n "$SESSION" ]; then
 fi
 
 # Effort, most specific first: --effort, the word after the model, the session's
-# level, the shortcut's pinned level, DROID_REVIEW_EFFORT, then droid's per-model
-# default.
+# level, DROID_REVIEW_EFFORT, then droid's per-model default.
 # A fan-out leaves all of this to its children, one model each.
-PINNED=""
-if [ -z "$MODELS" ] && spec="$(shortcut "${MODEL:-glm}")"; then
-  MODEL="${spec%% *}"
-  [ "$spec" = "$MODEL" ] || PINNED="${spec#* }"
+if [ -z "$MODELS" ]; then
+  MODEL="$(shortcut "${MODEL:-glm}" || echo "$MODEL")"
+  EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${DROID_REVIEW_EFFORT:-}}}}"
 fi
-[ -n "$MODELS" ] || EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${PINNED:-${DROID_REVIEW_EFFORT:-}}}}}"
 
 if [ -n "$CATALOG" ] && [ -z "$MODELS" ]; then
   supported="$(catalog_entry "$MODEL")"
