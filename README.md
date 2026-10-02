@@ -184,6 +184,15 @@ terminal, stderr shows a board redrawn in place, one line per model; elsewhere
 and result for each. Exit 0 if any model succeeded; Ctrl-C stops the rest and
 keeps what finished. `--models` with no list still prints the shortcuts.
 
+### Maintaining it
+
+droid changes under the script without warning: new models, retired ids,
+renamed flags, a different help format. In this repo, `/maintain-droid-review-skill`
+(a project skill under `.claude/skills/`) checks the script against the
+installed droid, proposes shortcut moves for you to pick from, runs every
+script path against a stub droid, and keeps the docs in agreement. Run it after
+a droid upgrade.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
