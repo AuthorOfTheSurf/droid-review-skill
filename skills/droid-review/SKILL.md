@@ -32,8 +32,9 @@ yourself.** The script reads it: a first word that is exactly a shortcut
 (`luna`, `gemini`, …) or a droid model id picks the model, a second word that
 is exactly an effort level (`high`, `max`, …) overrides that model's level, and
 the rest is optional emphasis on top of `/review`. So `/droid-review luna the
-auth changes` is Luna at its pinned level, weighted toward auth. `--models`
-prints the shortcuts and their levels, `--efforts [model]` every level a model
+auth changes` is Luna at droid's default effort, weighted toward auth. No
+shortcut pins an effort: a higher one is opt-in, only when the user names it. `--models`
+prints the shortcuts, `--efforts [model]` every level a model
 takes and its default, `--whats-new` what droid marks new, on sale or
 deprecated; an effort the model does not support
 fails before droid runs, so relay that message. Only when the user names a
@@ -50,8 +51,8 @@ The script prints two lines: the markdown file the review was saved to
 (under `.droid-reviews/`, which ignores itself in git) and the droid **session
 id**. Keep the
 session id. A review takes a few minutes; run the script with a long timeout
-or in the background. Default model is `glm` (`glm-5.3-flash` at reasoning
-`high`); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
+or in the background. Default model is `glm` (`glm-5.3-flash`, at droid's
+default effort); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
 
 Non-zero exit means droid did not finish (auth, unknown model, network) —
 report the stderr text to the user rather than reviewing nothing.
@@ -128,7 +129,7 @@ compaction, a new day).
 This continues the droid session on the model and effort that wrote the
 review (read from the review file's header), so the reviewer that raised a
 finding is the one that grades the fix. It re-reads its own findings against
-the fixed code and reports fixed / still open / false positive plus anything
+the fixed code (the review file's title and `round` say which round it is) and reports fixed / still open / false positive plus anything
 new. Do not name a model on a re-check unless the user asks for a different
 reviewer. One round trip is enough; do not loop until the reviewer is silent.
 

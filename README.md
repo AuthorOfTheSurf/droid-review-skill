@@ -106,23 +106,27 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 ### Model shortcuts
 
 - First parameter allows optional specification of a model, e.g. (glm = GLM 5.3 Flash)
-- Second parameter is an effort level overrides of the default effort level for one run (`/droid-review luna xhigh`)
+- Second parameter is an effort level, overriding droid's default for that one run (`/droid-review luna max`)
 - Anything else is the focus, so `/droid-review the gemini integration` is a GLM review about Gemini
 
-| Shortcut | Model | Effort |
-|---|---|---|
-| `glm` (default) | `glm-5.3-flash` | high |
-| `gemini` | `gemini-3.8-flash` | high |
-| `luna` | `gpt-6-luna` | max |
-| `auto` | `auto` | none (droid picks) |
-| `fable` | `claude-fable-5.1` | droid's default |
-| `opus` | `claude-opus-5-5` | droid's default |
-| `astra` | `gpt-6-astra` | droid's default |
-| `sol` | `gpt-6.1-sol` | droid's default |
-| `grok` | `grok-4.7` | droid's default |
-| `qwen` | `qwen3.8-max` | droid's default |
-| `kimi` | `kimi-k3` | droid's default |
-| `deepseek` | `deepseek-v4.1-flash` | droid's default |
+| Shortcut | Model | droid's default effort | Levels it takes |
+|---|---|---|---|
+| `glm` (default) | `glm-5.3-flash` | high | low, high, max |
+| `gemini` | `gemini-3.8-flash` | high | low, medium, high |
+| `luna` | `gpt-6-luna` | medium | none … max |
+| `auto` | `auto` | none (droid picks) | — |
+| `fable` | `claude-fable-5.1` | high | off … max |
+| `opus` | `claude-opus-5-5` | medium | low … max |
+| `astra` | `gpt-6-astra` | medium | low … max |
+| `sol` | `gpt-6.1-sol` | medium | low … max |
+| `grok` | `grok-4.7` | high | low … xhigh |
+| `qwen` | `qwen3.8-max` | xhigh | low, medium, xhigh |
+| `kimi` | `kimi-k3` | high | off, low, high, max |
+| `deepseek` | `deepseek-v4.1-flash` | high | off, low, high, max |
+
+No shortcut pins an effort: each runs at droid's default for that model, and
+a higher level is opt-in for the run you name it on (`/droid-review luna max`).
+A max-effort review can take half an hour.
 
 Any other model id droid accepts works as the first word too (`droid exec -m x
 --list-tools` lists them all; `droid exec --help` lags behind). The script
@@ -195,13 +199,15 @@ they go, add rows to Claude Code's status line, one per running review, under
 the status line you already have:
 
 ```
-◓ droid glm-5.3-flash high     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
-◓ droid gemini-3.8-flash high  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-✓ droid luna max               done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+◓ droid review glm-5.3-flash      ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
+◓ droid review 2 gemini-3.8-flash ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+✓ droid review gpt-6-luna max     done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 ```
 
-The time after `~` is the median of that model's earlier finished runs in the
-repo, and the bar fills toward it (amber once past it; a pulse until there is
+"review 2" is a re-check (`--session`), the second round of that review; the
+review file's title and metadata carry the round too. The time after `~` is
+the median of that model's earlier finished runs of the same kind (first
+review or re-check) in the repo, and the bar fills toward it (amber once past it; a pulse until there is
 any history). A finished run stays 30 seconds with its result, then goes. With
 nothing running it prints nothing.
 

@@ -8,9 +8,9 @@
 #   droid-review.sh --feedback "<ask>"    # not /review: ask droid for anything, in its own words
 #   droid-review.sh --base origin/main
 #   droid-review.sh --uncommitted         # only the working tree
-#   droid-review.sh luna                  # a shortcut: gpt-6-luna at reasoning max
+#   droid-review.sh luna                  # a shortcut: gpt-6-luna at droid's default effort
 #   droid-review.sh "gemini the auth changes"   # shortcut, then the emphasis
-#   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
+#   droid-review.sh "luna max"            # shortcut at an effort you name (higher is opt-in)
 #   droid-review.sh --model glm-5.2 --effort max
 #   droid-review.sh --models              # list the shortcuts and exit
 #   droid-review.sh --efforts [model]     # every model's effort levels and default, or one's
@@ -83,16 +83,17 @@ ORIG_PWD="$PWD"
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # fan-out children re-run it
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 
-# Shortcuts: name → "model [effort]". A pinned effort is the level that model
-# should review at; without one, droid's per-model default applies. The family
+# Shortcuts: name → model. None pins an effort: each runs at droid's per-model
+# default (--efforts shows it), and a higher one is opt-in, named on the run
+# ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
 # model in the family as of droid 0.232.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
-    glm)    echo "glm-5.3-flash high" ;;
-    gemini) echo "gemini-3.8-flash high" ;;
-    luna)   echo "gpt-6-luna max" ;;
+    glm)    echo "glm-5.3-flash" ;;
+    gemini) echo "gemini-3.8-flash" ;;
+    luna)   echo "gpt-6-luna" ;;
     auto)   echo "auto" ;;
     fable)  echo "claude-fable-5.1" ;;
     opus)   echo "claude-opus-5-5" ;;
@@ -598,6 +599,7 @@ if mode == "start":
         "droid_version": None,
         "asked": env("ASK"), "checks": env("CHECKS"),
         "continues": {"session": env("SESSION"), "review": env("SESSION_FILE")} if env("SESSION") else None,
+        "round": 1,
         "repo": env("ROOT"), "branch": git("branch", "--show-current") or None,
         "head": git("rev-parse", "HEAD"), "head_subject": git("log", "-1", "--format=%s"),
         "scope": env("SCOPE"), "scope_text": env("WHAT"), "base": None,
@@ -605,6 +607,17 @@ if mode == "start":
         "session": None, "turns": None,
         "files": {"review": None, "log": env("LOG"), "meta": meta},
     }
+    # A continuation is the next round of the review it continues: 2 for the
+    # first re-check, and so on (a review from before rounds counts as 1).
+    if env("SESSION"):
+        prev = {}
+        if env("SESSION_FILE"):
+            try:
+                with open(env("SESSION_FILE")[:-3] + ".json") as f:
+                    prev = json.load(f)
+            except (OSError, ValueError):
+                pass
+        m["round"] = (prev.get("round") or 1) + 1
     try:
         r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
@@ -653,7 +666,8 @@ elif mode == "finish":
     m["droid_duration_s"] = (d.get("duration_ms") or 0) // 1000
     m["files"]["review"] = out
     short = lambda sha: (sha or "?")[:7]
-    lines = ["- started: %s" % m.get("started"),
+    lines = ["- round: %s" % m.get("round", 1),
+             "- started: %s" % m.get("started"),
              "- finished: %s (%ss)" % (m["finished"], m.get("duration_s", "?")),
              "- model: %s (reasoning %s)" % (m.get("model"), m.get("effort") or "droid default"),
              "- scope: %s" % m.get("scope_text")]
@@ -684,7 +698,10 @@ elif mode == "finish":
     lines.append("- session: %s" % m["session"])
     lines.append("- turns: %s, %ss" % (m["turns"], m["droid_duration_s"]))   # last: words() reads after it
     with open(out, "w") as f:
-        f.write("# droid %s\n\n" % ("feedback" if m.get("kind") == "feedback" else "review"))
+        title = "feedback" if m.get("kind") == "feedback" else "review"
+        if (m.get("round") or 1) > 1:
+            title += ", round %d" % m["round"]
+        f.write("# droid %s\n\n" % title)
         f.write("\n".join(lines) + "\n\n" + (d.get("result") or "").strip() + "\n")
     save(m)
     print(out)

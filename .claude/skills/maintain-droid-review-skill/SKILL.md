@@ -132,17 +132,17 @@ Report, in one table (shortcut → current → candidate → why):
 - **A shortcut's model marked `[Deprecated]` or gone.** These break for users
   once droid drops the id, so lead with them, and always propose a replacement:
   the newest non-deprecated model in the family, naming any tier change
-  (pro → flash) and checking its levels against the pin. Moving off deprecated
+  (pro → flash) and its default effort. Moving off deprecated
   models is the expected outcome; only removing the shortcut needs the user to
   argue for it. droid's declared fallback is the default candidate.
 - **A newer model in a shortcut's family** (`NEWER:` in `--whats-new`). Name the
   kind of change — a version bump, a different tier (pro vs. flash), a `-fast`
   variant, a preview. Only a plain version bump is like-for-like; the rest are
   choices.
-- **A pinned effort the model no longer supports**, or a candidate whose levels
-  differ from the pin (a pin of `max` cannot carry over to a model that tops out
-  at `high`). An unpinned shortcut runs at droid's default — `--efforts` shows
-  what that is.
+- **No shortcut pins an effort.** Each runs at droid's per-model default, and
+  higher effort is opt-in on the run (the user's rule: a max-effort review can
+  take half an hour). Do not propose a pin; do note in the table when a
+  candidate's *default* level differs from the current model's.
 - **New or discounted models** from `--whats-new` worth a shortcut or a move,
   with the discount's end date — a sale is a reason to try a model, not to pin
   a shortcut to it.
@@ -160,7 +160,6 @@ $d --models | while read -r s id _; do
 done
 ```
 
-and check each pinned effort appears in that model's `--efforts` levels.
 
 ## 4. Regression — run the script's paths against a stub droid
 

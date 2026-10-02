@@ -2,13 +2,16 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ◐ droid glm-5.3-flash high  ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
-    ✓ droid gemini-3.8-flash    done in 1:32 · 14 turns · .droid-reviews/…-gemini-3.8-flash.md
+    ◐ droid review glm-5.3-flash      ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute git diff
+    ◐ droid review 2 gemini-3.8-flash ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
+    ✓ droid review gpt-6-luna max     done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
-(status, model, start, pid) and the last line of its .log (turn and what droid
-is doing). The estimate is the median time of this model's finished runs in
-the same folder; without any, the bar just pulses. A finished run stays for
+(status, model, round, start, pid) and the last line of its .log (turn and
+what droid is doing). "review 2" is a re-check (--session), the second round.
+The estimate is the median time of this model's finished runs of the same
+kind (first review or re-check) in the same folder; without any, the bar
+just pulses. A finished run stays for
 30 seconds with its result, then the row goes. Nothing running, nothing
 printed — your status line looks as it did.
 
@@ -93,21 +96,22 @@ STARTED = re.compile(r"^\[[^]]*\] started (\S+) ")
 
 
 def history(folder, runs):
-    """model -> finished durations in seconds: from .json, and from the .log of
-    runs older than the metadata (their first line names the model, their last
-    says done in N seconds)."""
+    """(model, is a re-check) -> finished durations in seconds: from .json, and
+    from the .log of runs older than the metadata (their first line names the
+    model, their last says done in N seconds; counted as first rounds). A
+    re-check takes a fraction of a first review, so the two are timed apart."""
     out, seen = {}, set()
     for m in runs:
         seen.add(m["_name"])
         if m.get("status") == "ok" and m.get("model") and m.get("duration_s") is not None:
-            out.setdefault(m["model"], []).append(m["duration_s"])
+            out.setdefault((m["model"], (m.get("round") or 1) > 1), []).append(m["duration_s"])
     for name in os.listdir(folder):
         if not name.endswith(".log") or name[:-4] in seen:
             continue
         first, last = log_ends(os.path.join(folder, name))
         s, d = STARTED.match(first or ""), DONE.search(last or "")
         if s and d:
-            out.setdefault(s.group(1), []).append(int(d.group(1)))
+            out.setdefault((s.group(1), False), []).append(int(d.group(1)))
     return out
 
 
@@ -210,7 +214,9 @@ def rows(folder, now, columns):
     width = max(len(m.get("model") or "?") + len(" " + m["effort"] if m.get("effort") else "") for m in shown)
     for m in shown:
         status = m["_status"]
-        label = "droid" if m.get("kind") != "feedback" else "droid feedback"
+        label = "droid " + ("feedback" if m.get("kind") == "feedback" else "review")
+        if (m.get("round") or 1) > 1:
+            label += " %d" % m["round"]   # a re-check: short, and timed against re-checks
         model = m.get("model") or "?"
         effort = (" " + m["effort"]) if m.get("effort") else ""
         pad = " " * (width - len(model + effort))
@@ -219,7 +225,7 @@ def rows(folder, now, columns):
             if hist is None:
                 hist = history(folder, runs)
             elapsed = since(m.get("started"), now) or 0
-            past = hist.get(model) or []
+            past = hist.get((model, (m.get("round") or 1) > 1)) or []
             estimate = statistics.median(past) if past else None
             timing = clock(elapsed) + (GREY + " / ~" + clock(estimate) + RESET if estimate else "")
             _, last = log_ends(os.path.join(folder, m["_name"] + ".log"))

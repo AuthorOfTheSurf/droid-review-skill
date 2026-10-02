@@ -60,7 +60,7 @@ check "review: uncommitted 1/1/3"          json "$m" 'm["uncommitted"]=={"staged
 check "review: diff counts tracked files"  json "$m" 'm["diff"]["files"]==2'
 check "review: session, turns, droid ver"  json "$m" 'm["session"] and m["turns"]==2 and m["droid_version"]'
 check "review: files point at each other"  json "$m" "m['files']['review']=='$md' and m['files']['log']=='${md%.md}.log'"
-for f in started finished model scope branch base "uncommitted at start" "diff reviewed" droid metadata session turns; do
+for f in round started finished model scope branch base "uncommitted at start" "diff reviewed" droid metadata session turns; do
   check "review: header has '$f'"          grep -q "^- $f: " "$md"
 done
 check "review: turns is the last header line" sh -c "sed -n '/^- /p' '$md' | head -20 | tail -1 | grep -q '^- turns: '"
@@ -72,7 +72,18 @@ m2="$(meta_of "$(sed -n 1p "$t/o2")")"
 check "session last: exit 0"               [ "$RC" = 0 ]
 check "session last: says continuing"      grep -q '^continuing ' "$t/o2.err"
 check "session last: records what it continues" json "$m2" "m['continues']['review']=='$md'"
-check "session last: same model"           json "$m2" 'm["model"]=="glm-5.3-flash" and m["effort"]=="high"'
+check "session last: same model"           json "$m2" 'm["model"]=="glm-5.3-flash" and m["effort"] is None'
+check "review: round 1, no effort pinned"  json "$m" 'm["round"]==1 and m["effort"] is None'
+check "session last: round 2"              json "$m2" 'm["round"]==2'
+check "session last: title says round 2"   grep -qx '# droid review, round 2' "$(sed -n 1p "$t/o2")"
+run "$t/o2b" --base master --session last
+check "session last again: round 3"        json "$(meta_of "$(sed -n 1p "$t/o2b")")" 'm["round"]==3'
+
+# A level named on the run is the run's, and a continuation keeps it.
+run "$t/o2c" --base master "glm max"
+run "$t/o2d" --base master --session last
+check "named effort: used"                 json "$(meta_of "$(sed -n 1p "$t/o2c")")" 'm["effort"]=="max"'
+check "named effort: kept by its re-check" json "$(meta_of "$(sed -n 1p "$t/o2d")")" 'm["effort"]=="max" and m["round"]==2'
 
 # 3. Fan-out.
 run "$t/o3" --base master --models glm,gemini
@@ -163,7 +174,7 @@ check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 
 wait
 after="$(sl)"
 # (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid glm-5.3-flash .* done in '" _ "$after"
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid review gemini-3.8-flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid review glm-5.3-flash .* done in '" _ "$after"
 check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
 
