@@ -22,7 +22,14 @@ change only what they pick.
 ```bash
 git pull
 droid --version            # compare with "as of droid X" above shortcut() and in README.md
+skills/droid-review/droid-review.sh --whats-new
 ```
+
+**Echo the `--whats-new` output into your reply verbatim, every run**, before
+anything else. It is what the user sees at the top of droid's `/model` picker
+(new models, discounts and their end dates, deprecations with droid's fallback),
+plus each shortcut checked against droid's own family order, and they decide
+from it. Having it in the transcript is the point.
 
 If droid itself is behind, everything below is too; say so, and let the user
 decide whether to update droid first.
@@ -51,6 +58,14 @@ against the help wherever both list a model — they must agree exactly:
 ```bash
 droid exec --help | sed -n '/Model details:/,/^$/p' | grep ' - '   # eyeball against $d --efforts
 ```
+
+`--whats-new` reads more of the same registry: the `newUntil` badge date,
+`cost.promotions` (discount, start, expiry, label), `deprecation` with its
+`fallbackModelId`, and the family list (`generations:[{id:...},...]`, newest
+first). If every shortcut shows `(no family listed)`, or NEW / ON SALE /
+DEPRECATED are all `(none)` while the user's `/model` shows badges, the
+extraction stopped matching: fix the regexes in the `--efforts`/`--whats-new`
+block.
 
 When the user asks "what levels does X take", `$d --efforts X` is the answer;
 never guess, and never probe with a real run — droid runs an unsupported effort
@@ -94,18 +109,20 @@ current droid version and its `.log` shows turns and a `done` line.
 
 ## 3. Model shortcuts
 
-The ids come from the `--list-tools` error, not the help; `--efforts` lists
-them with their levels. Do not assume listing order is newest first (it is not:
-`gemini-3.1-pro-preview` sits above `gemini-3.8-flash`). Read them against
-`shortcut()` and report, in one table (shortcut → current → candidate → why):
+Start from the SHORTCUTS section of `--whats-new`: it checks each shortcut
+against droid's own family list, newest generation first, and names any newer
+generation and any deprecation with droid's fallback. Do not infer newness from
+the `--list-tools` order (it is not newest first: `gemini-3.1-pro-preview` sits
+above `gemini-3.8-flash`). `--efforts` gives levels, price and notes per model.
+Report, in one table (shortcut → current → candidate → why):
 
 - **A shortcut's model marked `[Deprecated]` or gone.** These break for users
   once droid drops the id, so lead with them, and always propose a replacement:
   the newest non-deprecated model in the family, naming any tier change
   (pro → flash) and checking its levels against the pin. Moving off deprecated
   models is the expected outcome; only removing the shortcut needs the user to
-  argue for it.
-- **A newer model in a shortcut's family.** Compare version numbers and name the
+  argue for it. droid's declared fallback is the default candidate.
+- **A newer model in a shortcut's family** (`NEWER:` in `--whats-new`). Name the
   kind of change — a version bump, a different tier (pro vs. flash), a `-fast`
   variant, a preview. Only a plain version bump is like-for-like; the rest are
   choices.
@@ -113,6 +130,9 @@ them with their levels. Do not assume listing order is newest first (it is not:
   differ from the pin (a pin of `max` cannot carry over to a model that tops out
   at `high`). An unpinned shortcut runs at droid's default — `--efforts` shows
   what that is.
+- **New or discounted models** from `--whats-new` worth a shortcut or a move,
+  with the discount's end date — a sale is a reason to try a model, not to pin
+  a shortcut to it.
 - **Families with no shortcut yet**, listed briefly. Do not propose adding them
   unless the user asks.
 
