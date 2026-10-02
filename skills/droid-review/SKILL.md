@@ -115,7 +115,24 @@ Fix confirmed findings, then run the checks that cover them — the repo's own
 instructions file says which those are and what each costs. Do not commit
 unless the user's standing instruction for the branch says to.
 
-## 4. Re-check with the same reviewer
+## 4. Note what you did
+
+Leave one line on the review saying what came of it, so `/droid-reviews` shows
+the history as finding → what you did → the reviewer's verdict on it:
+
+```bash
+.claude/skills/droid-review/droid-review.sh --note <review file> "fixed the base-ref crash and the quoting bug; rejected the race as a false positive (the lock is held)"
+```
+
+`<review file>` is the path the run printed; a session id (its newest round)
+or `last` (the newest finished review on this branch) work too. Note each
+model's review after a fan-out. Say what you did, verdicts and fixes, in one
+line, in plain words; it is your own account, and the history shows it as
+that. Note before the re-check, so the line sits under the round it answers.
+If the user took over, or you did nothing, say that instead ("left for the
+user: 2 judgement calls").
+
+## 5. Re-check with the same reviewer
 
 ```bash
 .claude/skills/droid-review/droid-review.sh --session <id>
@@ -133,7 +150,7 @@ the fixed code (the review file's title and `round` say which round it is) and r
 new. Do not name a model on a re-check unless the user asks for a different
 reviewer. One round trip is enough; do not loop until the reviewer is silent.
 
-## 5. Report
+## 6. Report
 
 A short table: finding → verdict → what you did. Then the re-check result in
 one line. Quote the review file path so the user can read the raw review.

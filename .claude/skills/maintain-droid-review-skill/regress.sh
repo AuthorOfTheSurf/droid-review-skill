@@ -160,7 +160,40 @@ PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "
 check "feedback: exit 0"                   [ "$RC" = 0 ]
 check "feedback: metadata kind feedback"   json "$(newest_meta)" 'm["kind"]=="feedback" and m["asked"]=="is this sane"'
 
-# 9. The status line, live: mid-run it shows the run and its turn; just after,
+# 9. Notes and the history. A note on the first review must not make it the
+# newest file, which `--session last` would then continue.
+newest_before="$(ls -t .droid-reviews/*.md | grep -v -- '-multi\.md$' | head -1)"
+PATH="$t/bin:$PATH" "$d" --note "$md" "fixed the crash; the race is a false positive" > "$t/n1" 2>&1; RC=$?
+check "note: exit 0, says where"           sh -c "[ $RC = 0 ] && grep -q '^noted on .droid-reviews/' '$t/n1'"
+check "note: in the json"                  json "$m" 'm["responses"][0]["text"]=="fixed the crash; the race is a false positive" and m["responses"][0]["at"]'
+check "note: under ## Response in the review" sh -c "grep -q '^## Response$' '$md' && tail -1 '$md' | grep -q ': fixed the crash; the race is a false positive$'"
+check "note: newest review is unchanged"   [ "$(ls -t .droid-reviews/*.md | grep -v -- '-multi\.md$' | head -1)" = "$newest_before" ]
+PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --note last "applied both" > /dev/null 2>&1; RC=$?
+check "note: through droid-feedback, last" sh -c "[ $RC = 0 ] && grep -q '\"applied both\"' \"\$(ls -t .droid-reviews/*.json | head -1)\""
+PATH="$t/bin:$PATH" "$d" --note "$md" > /dev/null 2>&1; RC=$?
+check "note: needs a line"                 [ "$RC" = 2 ]
+PATH="$t/bin:$PATH" "$d" --note nope "x" > "$t/n2" 2>&1; RC=$?
+check "note: an unknown review fails"      sh -c "[ $RC != 0 ] && grep -q 'no review matches' '$t/n2'"
+PATH="$t/bin:$PATH" "$d" --all > /dev/null 2>&1; RC=$?
+check "--all alone is refused"             [ "$RC" = 2 ]
+
+git commit -q --allow-empty -m "after the reviews"
+PATH="$t/bin:$PATH" "$d" --history > "$t/h1" 2>&1; RC=$?
+check "history: exit 0, this branch"       sh -c "[ $RC = 0 ] && head -1 '$t/h1' | grep -q '^droid reviews · feat · HEAD '"
+check "history: a review and its 2 re-checks" grep -q '^GLM-5.3-Flash · review · 3 rounds · session ' "$t/h1"
+check "history: the note under round 1"    sh -c "grep -A1 '^  1 .* at ${head_sha:0:7}, 1 commit behind' '$t/h1' | grep -q '→ fixed the crash; the race is a false positive'"
+check "history: failed rounds say why"     grep -q 'failed after .*stub: model unavailable' "$t/h1"
+check "history: feedback is listed"        grep -q '· feedback · 1 round' "$t/h1"
+"$r/skills/droid-reviews/droid-reviews.sh" > "$t/h2" 2>&1
+check "droid-reviews: the same history"    cmp -s "$t/h1" "$t/h2"
+git checkout -q -b other
+"$r/skills/droid-reviews/droid-reviews.sh" > "$t/h3" 2>&1
+check "history: none on another branch"    grep -q '^no reviews on this branch (--all for every branch) yet$' "$t/h3"
+"$r/skills/droid-reviews/droid-reviews.sh" all > "$t/h4" 2>&1
+check "history: all shows every branch"    sh -c "head -1 '$t/h4' | grep -q '· every branch ·' && grep -q '3 rounds' '$t/h4'"
+git checkout -q feat
+
+# 10. The status line, live: mid-run it shows the run and its turn; just after,
 # the result. (Its own states are unit-tested in statusline_test.py, run below.)
 sl() { echo "{\"workspace\":{\"current_dir\":\"$t/repo\"}}" | COLUMNS=200 python3 "$r/skills/droid-review/statusline.py" | sed 's/\x1b\[[0-9;]*m//g; s/\x1b\]8;;[^\x1b]*\x1b\\//g'; }
 PATH="$t/bin:$PATH" STUB_DROID_DELAY=2 "$d" --base master --models glm,gemini > "$t/o10" 2>&1 &
@@ -178,8 +211,9 @@ after="$(sl)"
 check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid · review *· Gemini 3.8 Flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid · review *· GLM-5.3-Flash .* done in '" _ "$after"
 check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
+check "history: unit tests"                python3 "$here/reviews_test.py"
 
-# 10. No run left a temp file or a "running" status behind.
+# 11. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]
 check "no run still marked running"        sh -c "! grep -l '\"status\": \"running\"' .droid-reviews/*.json"
 

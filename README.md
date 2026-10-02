@@ -37,6 +37,7 @@ Benefits:
 |---|---|
 | **`/droid-review`** | wraps droid's own `/review` skill. Receive a structured code review: severity, file:line, the scenario that breaks. Triage is confirmed / pre-existing / false positive / nit, then fix and re-check. |
 | **`/droid-feedback`** | an open-ended prompt, literally ask for feedback like "is this approach sane?". Receive prose back, no imposed format. Use when you want feedback, not code review |
+| **`/droid-reviews`** | the history: this branch's reviews, each with its re-checks, the commit it reviewed and how far you've moved since, and what your agent did about it. Runs no model |
 
 ### When to use it
 
@@ -75,33 +76,33 @@ A run takes anywhere from ~40s to ~8 minutes depending on model, branch size, an
 
 ### Install
 
-Install both skills together — `droid-feedback` is a thin wrapper around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
+Install the three skills together — `droid-feedback` and `droid-reviews` are thin wrappers around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
 
-The usual way: clone this repo and link both skills into your personal skills
+The usual way: clone this repo and link the skills into your personal skills
 folder, so a `git pull` here updates every project:
 
 ```bash
 git clone https://github.com/AuthorOfTheSurf/droid-review-skill
 cd droid-review-skill
 mkdir -p ~/.claude/skills
-ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" ~/.claude/skills/
+ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" "$PWD/skills/droid-reviews" ~/.claude/skills/
 ```
 
 Run `git pull` in the clone now and then to pick up new model shortcuts. To
-remove it, delete the two links.
+remove it, delete the three links.
 
 Or copy them into one project (a copy never updates):
 
 ```bash
 mkdir -p .claude/skills
-cp -r path/to/droid-review-skill/skills/droid-review path/to/droid-review-skill/skills/droid-feedback .claude/skills/
+cp -r path/to/droid-review-skill/skills/droid-review path/to/droid-review-skill/skills/droid-feedback path/to/droid-review-skill/skills/droid-reviews .claude/skills/
 ```
 
 Reviews land in `.droid-reviews/` in whichever repo you run from. The folder
 ignores itself (the script puts a `.gitignore` of `*` in it), so no repo needs
 a line for it.
 
-Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review` and `/droid-feedback` autocomplete and be available
+Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review`, `/droid-feedback` and `/droid-reviews` autocomplete and be available
 
 ### Model shortcuts
 
@@ -160,6 +161,8 @@ droid-review.sh "glm,gemini the auth changes"                 # same fan-out, as
 droid-review.sh --base origin/main --effort max
 droid-review.sh --checks docs/testing.md
 droid-review.sh --session last "re-check the fixes in HEAD"
+droid-review.sh --note last "fixed 2; the race is a false positive"   # what came of a review
+droid-review.sh --history                # this branch's reviews (--all: every branch)
 droid-review.sh --help
 ```
 
@@ -191,6 +194,33 @@ terminal, stderr shows a board redrawn in place, one line per model; elsewhere
 `.droid-reviews/<stamp>-<branch>-multi.md` tabling status, time, words, session
 and result for each. Exit 0 if any model succeeded; Ctrl-C stops the rest and
 keeps what finished. `--models` with no list still prints the shortcuts.
+
+### History, and what came of each review
+
+`/droid-reviews` (or `droid-review.sh --history`) lists the reviews on this
+branch, newest first, each with its re-checks:
+
+```
+droid reviews · review-status-mod · HEAD 82474b1 · clean
+
+GLM-5.3-Flash · review · 2 rounds · session 71feef9c-4f42-4fac-90c1-99274f49d494
+  1  today 23:18       ok in 3:02 · 12 turns       at 0cf440d, 9 commits behind
+     → fixed date -r and the quoting after --; rejected the pid race as a false positive
+     .droid-reviews/20261002-231805-review-status-mod-glm-5.3-flash.md
+  2  today 23:55       ok in 3:07 · 21 turns       at 274a06f, 8 commits behind
+     → all three fixes confirmed; nothing new
+     .droid-reviews/20261002-235500-review-status-mod-glm-5.3-flash.md
+```
+
+Each round says when it ran, how it ended, and the commit it reviewed against
+HEAD now, so you can tell a fresh review from a stale one. `all` (`--all`)
+lists every branch.
+
+The `→` lines are notes. After triage, the skill has your agent record what it
+did about the review in one line (`droid-review.sh --note <review> "<line>"`),
+before it asks for the re-check. Read down a thread and you get the finding,
+what was done, and the reviewer's verdict on it. A note is the agent's own
+account, kept in the run's `.json` and under `## Response` in the review file.
 
 ### Live status in Claude Code (optional)
 

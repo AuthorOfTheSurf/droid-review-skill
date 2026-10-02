@@ -20,6 +20,8 @@
 #   droid-review.sh --checks docs/testing.md   # inline a file listing how to verify this repo
 #   droid-review.sh --session <id> "re-check the fixes in HEAD"
 #   droid-review.sh --session last        # the newest review's session, by file
+#   droid-review.sh --history [--all]     # this branch's reviews (--all: every branch), rounds and notes
+#   droid-review.sh --note <review|session|last> "<what you did about it>"
 #
 # A continuation runs on the model and effort that wrote the review, read from
 # the review file's header, so the reviewer that raised a finding is the one
@@ -46,6 +48,13 @@
 # and finish, the commit, branch and base it reviewed, and the uncommitted
 # changes it saw. Compare those with the repo now to tell how fresh it is; the
 # review file's header says the same in words.
+#
+# --history lists the reviews on this branch, newest first, each with its
+# re-checks: when each round ran, how it ended, the commit it reviewed and how
+# far HEAD has moved since. --note records one line on a finished review (the
+# file, a session id for its newest round, or last): what the agent that
+# triaged it did about it. It goes in the .json and under "## Response" in the
+# review file, and --history shows it under its round.
 #
 # Fan-out: --models a,b,c (or a comma list as the ask's first word) runs one
 # child of this script per model, in parallel, each with that model's shortcut
@@ -197,6 +206,9 @@ SESSION=""
 MODELS=""        # comma list: fan out, one child run per model
 EFFORTS=""       # --efforts: list levels instead of running ("all" or a model)
 WHATS_NEW=""     # --whats-new: new, discounted and deprecated models, then exit
+ALL=""           # --all: --history on every branch
+HISTORY=""       # --history: list this repo's reviews, then exit (--all: every branch)
+NOTE=()          # --note <review> <text>: record what was done about a review
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -219,6 +231,11 @@ while [ $# -gt 0 ]; do
     --efforts)
       case "${2:-}" in ""|-*) EFFORTS="all"; shift ;; *) EFFORTS="$2"; shift 2 ;; esac ;;
     --whats-new) WHATS_NEW=1; shift ;;
+    --history) HISTORY="history"; shift ;;
+    --all)     ALL=1; shift ;;
+    --note)
+      [ $# -ge 3 ] || die "--note needs a review and a line: --note last \"fixed 2, rejected 1 as a false positive\""
+      NOTE=("$2" "$3"); shift 3 ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1 (--help for usage)" ;;
     *) ASK="${ASK:+$ASK }$1"; shift ;;
@@ -354,6 +371,15 @@ fi
 
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
+
+# --history and --note read and write .droid-reviews/ only; no droid needed.
+[ -z "$ALL" ] || [ -n "$HISTORY" ] || die "--all goes with --history"
+if [ -n "$HISTORY" ]; then
+  exec python3 "$(dirname "$SELF")/reviews.py" history ${ALL:+--all}
+fi
+if [ ${#NOTE[@]} -gt 0 ]; then
+  exec python3 "$(dirname "$SELF")/reviews.py" note "${NOTE[0]}" "${NOTE[1]}"
+fi
 [ -n "$BASE" ] || BASE="$(default_base)"
 
 command -v droid >/dev/null || \

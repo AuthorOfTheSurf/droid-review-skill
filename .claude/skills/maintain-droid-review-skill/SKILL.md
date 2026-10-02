@@ -1,6 +1,6 @@
 ---
 name: maintain-droid-review-skill
-description: Maintainer pass over the droid-review and droid-feedback skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
+description: Maintainer pass over the droid-review, droid-feedback and droid-reviews skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
 ---
 
 # Maintain the droid-review skill
@@ -152,7 +152,7 @@ Report, in one table (shortcut → current → candidate → why):
 If nothing drifted, say so in one line. Apply only what the user picks: edit
 `shortcut()`, the droid version in the comment above it, and the shortcut table
 and version note in README.md — the three must agree. Update `argument-hint` in
-both `skills/*/SKILL.md` only when a shortcut name is added or removed. Then:
+the droid-review and droid-feedback SKILL.md only when a shortcut name is added or removed. Then:
 
 ```bash
 $d --models | while read -r s id _; do
@@ -174,15 +174,18 @@ checks what each leaves behind:
 
 It covers a review, `--session last`, a fan-out, a fan-out where both fail
 silently, droid reporting an error, droid printing garbage, an interrupt of a
-single run and of a fan-out (TERM to the whole process group), and
-droid-feedback — each for exit code, stdout, the review header and the run
+single run and of a fan-out (TERM to the whole process group),
+droid-feedback, and `--note` / `--history` / droid-reviews (a note's place in
+the .json and the review file, that it leaves `--session last` alone, rounds,
+how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
 is a script bug, or a contract the check encodes that changed on purpose:
 then change the check in the same commit. It also checks the status line rows live during a slowed stub run, and runs
-`statusline_test.py` (the rows for every run state, against fixture folders).
+`statusline_test.py` (the rows for every run state, against fixture folders)
+and `reviews_test.py` (threads, the branch filter, round lines, notes).
 To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
 stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
-on both scripts (shellcheck: only report new warnings). When a fix covers a
+on the scripts (shellcheck: only report new warnings). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
 
 ## 5. Docs agree with the script
@@ -190,8 +193,9 @@ failure the stub cannot yet produce, add a stub mode and a check for it.
 - Every flag `usage` prints (`$d --help`) is described in README.md, and the ones
   a skill user needs appear in `skills/droid-review/SKILL.md`.
 - The shortcut table in README.md matches `$d --models`.
-- `argument-hint` in both SKILL.md files lists exactly the shortcut names.
-- Every `droid-review.sh` example in README.md and both SKILL.md files still
+- `argument-hint` in the droid-review and droid-feedback SKILL.md lists exactly
+  the shortcut names.
+- Every `droid-review.sh` example in README.md and the SKILL.md files still
   parses: run it with a model/effort it names through `--efforts`, or with
   `--help`-only flags, rather than starting a review.
 
