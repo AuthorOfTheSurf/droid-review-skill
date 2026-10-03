@@ -685,6 +685,10 @@ if mode == "start":
 
 elif mode == "status":
     m = load()
+    # Only a run still going takes a new status: a Ctrl-C that lands after
+    # the review was written must not turn its "ok" into "interrupted".
+    if m.get("status", "running") != "running":
+        sys.exit(0)
     m["status"] = sys.argv[3]
     ended(m, sys.argv[3])
     save(m)

@@ -118,22 +118,26 @@ check "garbage: metadata failed"           json "$(newest_meta)" 'm["status"]=="
 # 7. Interrupted: TERM to the whole process group, as a supervisor stopping a
 # background job does (and as Ctrl-C does with INT).
 # The TERM goes once droid is running: once every run (1, or one per fan-out
-# model) has written metadata that says "running".
+# model) has written metadata that says "running" — or, with STOP_AFTER_OK=n,
+# once n of this run's models have also finished ok.
 interrupt() {  # interrupt <out> <runs> <args...>
   local out="$1" runs="$2"; shift 2
-  PATH="$t/bin:$PATH" STUB_DROID_DELAY=2 python3 -c '
+  PATH="$t/bin:$PATH" STUB_DROID_DELAY="${STUB_DROID_DELAY:-2}" python3 -c '
 import glob, json, os, signal, subprocess, sys, time
-def running():
+before = set(glob.glob(".droid-reviews/*.json"))
+def count(status):
     n = 0
-    for f in glob.glob(".droid-reviews/*.json"):
+    for f in set(glob.glob(".droid-reviews/*.json")) - before:
         try:
-            n += json.load(open(f)).get("status") == "running"
-        except ValueError:
+            with open(f) as fh:
+                n += json.load(fh).get("status") == status
+        except (OSError, ValueError):
             pass
     return n
+ok = int(os.environ.get("STOP_AFTER_OK") or 0)
 p = subprocess.Popen(sys.argv[3:], stdout=open(sys.argv[1], "w"), stderr=open(sys.argv[1] + ".err", "w"), start_new_session=True)
 deadline = time.time() + 60
-while running() < int(sys.argv[2]) and time.time() < deadline and p.poll() is None:
+while (count("running") < int(sys.argv[2]) or count("ok") < ok) and time.time() < deadline and p.poll() is None:
     time.sleep(0.2)
 time.sleep(1)
 os.killpg(p.pid, signal.SIGTERM)
@@ -154,6 +158,12 @@ check "fan-out interrupt: both interrupted" [ "$(grep -c "	interrupted	" "$t/o8"
 for j in $(ls -t .droid-reviews/*.json | head -2); do
   check "fan-out interrupt: $(basename "$j") interrupted" json "$j" 'm["status"]=="interrupted"'
 done
+
+# An interrupt after one model has finished must not take its result back.
+STUB_DROID_FAST=glm-5.3-flash STOP_AFTER_OK=1 interrupt "$t/o8b" 1 --base master --models glm,gemini
+check "late interrupt: glm stays ok"       sh -c "grep -q '^glm	ok	' '$t/o8b' && grep -q '^gemini	interrupted	' '$t/o8b'"
+check "late interrupt: glm metadata ok"    json "$(ls -t .droid-reviews/*glm-5.3-flash.json | head -1)" 'm["status"]=="ok" and m["finished"]'
+check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["status"]=="interrupted"'
 
 # 8. droid-feedback.
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane" > "$t/o9" 2>&1; RC=$?

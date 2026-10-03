@@ -6,7 +6,7 @@ Skills in `skills/` (what users install), maintainer tooling in
 ## Checks
 
 ```bash
-.claude/skills/maintain-droid-review-skill/regress.sh             # every script path against a stub droid; no model cost, ~1 min
+.claude/skills/maintain-droid-review-skill/regress.sh             # every script path against a stub droid; no model cost, ~4 min (it asks the real droid for its model list)
 python3 .claude/skills/maintain-droid-review-skill/statusline_test.py
 python3 .claude/skills/maintain-droid-review-skill/reviews_test.py
 bash -n skills/*/*.sh && shellcheck skills/*/*.sh                  # report only new warnings
