@@ -1,6 +1,6 @@
 ---
 name: maintain-droid-review-skill
-description: Maintainer pass over the droid-review and droid-feedback skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
+description: Maintainer pass over the droid-review, droid-feedback and droid-history skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
 ---
 
 # Maintain the droid-review skill
@@ -34,6 +34,19 @@ from it. Having it in the transcript is the point.
 If droid itself is behind, everything below is too; say so, and let the user
 decide whether to update droid first.
 
+**Are Claude Code mods on for this account yet?** Running reviews show in
+the status line today (README: "Live status in Claude Code"); a mod could draw
+them natively (issue #4), but mods are rolling out remotely. Check
+from an empty directory, in one line of the report:
+
+```bash
+(cd "$(mktemp -d)" && claude plugin test 2>&1 | tail -1)
+```
+
+`no hooks module to load` means mods can load: tell the user the mod is
+unblocked. `turned off in this process` means not yet; `turned off here` means a
+setting blocks them.
+
 ## 2. Contracts — does the script still read droid?
 
 Each check is cheap and needs no model run unless it says so.
@@ -42,7 +55,12 @@ Each check is cheap and needs no model run unless it says so.
 `droid exec -m x --list-tools` accepts (stderr), the `Model details:` in
 `droid exec --help`, and the model registry built into the droid binary — the
 same table the interactive `/model` picker shows, which fills in every model the
-help leaves out.
+help leaves out. Only the listings (`--efforts`, `--whats-new`) ask for the
+first, which takes ten seconds or more. A run reads `catalog local`, the help
+plus the registry, and only when it has something to check (an effort, or a
+model that is not a shortcut); an id those two do not list is then put to
+droid before the script says "no such model". A shortcut at droid's default
+effort reads nothing.
 
 ```bash
 d=skills/droid-review/droid-review.sh
@@ -78,8 +96,18 @@ $d --model droid-review-no-such-model      # "droid has no model ..."
 $d "gemini max"                            # "... takes reasoning effort low,medium,high, not 'max'"
 ```
 
-If either starts droid, the catalog came back empty: read the stderr line
-("could not read droid's model list") and fix the parser.
+`regress.sh` checks both, and that a plain review and a fan-out of shortcuts
+never ask droid for its model list. If either starts droid, the catalog came
+back empty: read the stderr line ("could not read droid's model list") and fix
+the parser. The local catalog must know the models the help leaves out: pick
+one (an id `$d --efforts` lists and `droid exec --help` does not) and time a
+bad effort on it. It must exit 2 in about a second, naming the model's levels;
+ten seconds means the registry stopped matching and the run fell back to
+asking droid:
+
+```bash
+time $d --model gpt-6.1-sol --effort nonsense
+```
 
 **Reviewer tool set.** The script runs `--auto medium --remove-tools ApplyPatch`.
 
@@ -119,17 +147,17 @@ Report, in one table (shortcut → current → candidate → why):
 - **A shortcut's model marked `[Deprecated]` or gone.** These break for users
   once droid drops the id, so lead with them, and always propose a replacement:
   the newest non-deprecated model in the family, naming any tier change
-  (pro → flash) and checking its levels against the pin. Moving off deprecated
+  (pro → flash) and its default effort. Moving off deprecated
   models is the expected outcome; only removing the shortcut needs the user to
   argue for it. droid's declared fallback is the default candidate.
 - **A newer model in a shortcut's family** (`NEWER:` in `--whats-new`). Name the
   kind of change — a version bump, a different tier (pro vs. flash), a `-fast`
   variant, a preview. Only a plain version bump is like-for-like; the rest are
   choices.
-- **A pinned effort the model no longer supports**, or a candidate whose levels
-  differ from the pin (a pin of `max` cannot carry over to a model that tops out
-  at `high`). An unpinned shortcut runs at droid's default — `--efforts` shows
-  what that is.
+- **No shortcut pins an effort.** Each runs at droid's per-model default, and
+  higher effort is opt-in on the run (the user's rule: a max-effort review can
+  take half an hour). Do not propose a pin; do note in the table when a
+  candidate's *default* level differs from the current model's.
 - **New or discounted models** from `--whats-new` worth a shortcut or a move,
   with the discount's end date — a sale is a reason to try a model, not to pin
   a shortcut to it.
@@ -139,7 +167,7 @@ Report, in one table (shortcut → current → candidate → why):
 If nothing drifted, say so in one line. Apply only what the user picks: edit
 `shortcut()`, the droid version in the comment above it, and the shortcut table
 and version note in README.md — the three must agree. Update `argument-hint` in
-both `skills/*/SKILL.md` only when a shortcut name is added or removed. Then:
+the droid-review and droid-feedback SKILL.md only when a shortcut name is added or removed. Then:
 
 ```bash
 $d --models | while read -r s id _; do
@@ -147,43 +175,42 @@ $d --models | while read -r s id _; do
 done
 ```
 
-and check each pinned effort appears in that model's `--efforts` levels.
 
 ## 4. Regression — run the script's paths against a stub droid
 
 `stub-droid` (next to this file) answers `exec` runs with canned stream-json
-and forwards `--help` / `--list-tools` to the real droid, so this costs nothing.
-Run in a throwaway repo so `.droid-reviews/` lands there:
+and forwards `--help` / `--list-tools` / `--version` to the real droid, so this
+costs nothing. `regress.sh` runs every path against it in a throwaway repo and
+checks what each leaves behind:
 
 ```bash
-r="$(git rev-parse --show-toplevel)"; d="$r/skills/droid-review/droid-review.sh"
-t="$(mktemp -d)"; mkdir -p "$t/bin" "$t/repo"
-ln -sf "$r/.claude/skills/maintain-droid-review-skill/stub-droid" "$t/bin/droid"
-export REAL_DROID="$(command -v droid)"
-cd "$t/repo" && git init -q -b master && git commit -q --allow-empty -m a \
-  && git checkout -q -b feat && echo x > f && git add f && git commit -q -m b
-run() { PATH="$t/bin:$PATH" "$@"; echo "exit=$?"; }
-run "$d" --base master                          # review path + session id, exit 0
-run "$d" --base master --session last           # "continuing ...", same model, exit 0
-run "$d" --base master --models glm,gemini      # both ok, table + -multi.md index, exit 0
-STUB_DROID_MODE=fail-silent run "$d" --base master --models glm,gemini  # both failed, index written, exit 1
-STUB_DROID_MODE=error run "$d" --base master    # "droid reported an error", exit non-zero
-run "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane"  # feedback path, exit 0
-cd "$r"
+.claude/skills/maintain-droid-review-skill/regress.sh
 ```
 
-Each line's expectation is in its comment; any other outcome is a script bug.
-Also run `bash -n` and `shellcheck` on both scripts (shellcheck: only report new
-warnings). Add a stub mode when a fix covers a failure the stub cannot yet
-produce.
+It covers a review, `--session last`, a fan-out, a fan-out where both fail
+silently, droid reporting an error, droid printing garbage, an interrupt of a
+single run and of a fan-out (TERM to the whole process group),
+droid-feedback, and `--note` / `--history` / droid-history (a note's place in
+the .json and the review file, that it leaves `--session last` alone, rounds,
+how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
+metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
+is a script bug, or a contract the check encodes that changed on purpose:
+then change the check in the same commit. It also checks the status line rows live during a slowed stub run, and runs
+`statusline_test.py` (the rows for every run state, against fixture folders)
+and `reviews_test.py` (threads, the branch filter, round lines, notes).
+To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
+stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
+on the scripts (shellcheck is clean: any warning is new). When a fix covers a
+failure the stub cannot yet produce, add a stub mode and a check for it.
 
 ## 5. Docs agree with the script
 
 - Every flag `usage` prints (`$d --help`) is described in README.md, and the ones
   a skill user needs appear in `skills/droid-review/SKILL.md`.
 - The shortcut table in README.md matches `$d --models`.
-- `argument-hint` in both SKILL.md files lists exactly the shortcut names.
-- Every `droid-review.sh` example in README.md and both SKILL.md files still
+- `argument-hint` in the droid-review and droid-feedback SKILL.md lists exactly
+  the shortcut names.
+- Every `droid-review.sh` example in README.md and the SKILL.md files still
   parses: run it with a model/effort it names through `--efforts`, or with
   `--help`-only flags, rather than starting a review.
 

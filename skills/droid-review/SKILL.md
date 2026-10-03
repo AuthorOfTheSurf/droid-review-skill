@@ -32,8 +32,9 @@ yourself.** The script reads it: a first word that is exactly a shortcut
 (`luna`, `gemini`, …) or a droid model id picks the model, a second word that
 is exactly an effort level (`high`, `max`, …) overrides that model's level, and
 the rest is optional emphasis on top of `/review`. So `/droid-review luna the
-auth changes` is Luna at its pinned level, weighted toward auth. `--models`
-prints the shortcuts and their levels, `--efforts [model]` every level a model
+auth changes` is Luna at droid's default effort, weighted toward auth. No
+shortcut pins an effort: a higher one is opt-in, only when the user names it. `--models`
+prints the shortcuts, `--efforts [model]` every level a model
 takes and its default, `--whats-new` what droid marks new, on sale or
 deprecated; an effort the model does not support
 fails before droid runs, so relay that message. Only when the user names a
@@ -47,10 +48,11 @@ this repo keeps that list somewhere else, `--checks <path>` inlines that file
 instead.
 
 The script prints two lines: the markdown file the review was saved to
-(under `.droid-reviews/`, gitignored) and the droid **session id**. Keep the
+(under `.droid-reviews/`, which ignores itself in git) and the droid **session
+id**. Keep the
 session id. A review takes a few minutes; run the script with a long timeout
-or in the background. Default model is `glm` (`glm-5.3-flash` at reasoning
-`high`); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
+or in the background. Default model is `glm` (`glm-5.3-flash`, at droid's
+default effort); `DROID_REVIEW_MODEL` / `DROID_REVIEW_EFFORT` override.
 
 Non-zero exit means droid did not finish (auth, unknown model, network) —
 report the stderr text to the user rather than reviewing nothing.
@@ -58,6 +60,15 @@ report the stderr text to the user rather than reviewing nothing.
 While it runs, droid's progress streams into a `.log` beside the review file
 (the script prints `live log: <path>` on stderr): one line per tool call with
 elapsed time, turn, tool and target. `tail` it to see what the reviewer is doing.
+
+**How fresh is a review.** Each run also writes a `.json` of the same name, and
+the review file's header says the same in words: when it started and finished,
+the branch and commit (`head`) it reviewed, the base and merge-base, and how
+many staged / unstaged / untracked files were uncommitted. `status` is
+`running` while it goes, then `ok`, `failed` or `interrupted`. Before triaging
+a review you did not just run, compare its `head` with `git rev-parse HEAD`
+and its uncommitted counts with `git status`: commits or changes since then can
+have fixed a finding or made it stale, so say which.
 
 ### Several models at once
 
@@ -104,7 +115,24 @@ Fix confirmed findings, then run the checks that cover them — the repo's own
 instructions file says which those are and what each costs. Do not commit
 unless the user's standing instruction for the branch says to.
 
-## 4. Re-check with the same reviewer
+## 4. Note what you did
+
+Leave one line on the review saying what came of it, so `/droid-history` shows
+the history as finding → what you did → the reviewer's verdict on it:
+
+```bash
+.claude/skills/droid-review/droid-review.sh --note <review file> "fixed the base-ref crash and the quoting bug; rejected the race as a false positive (the lock is held)"
+```
+
+`<review file>` is the path the run printed; a session id (its newest round)
+or `last` (the newest finished review on this branch) work too. Note each
+model's review after a fan-out. Say what you did, verdicts and fixes, in one
+line, in plain words; it is your own account, and the history shows it as
+that. Note before the re-check, so the line sits under the round it answers.
+If the user took over, or you did nothing, say that instead ("left for the
+user: 2 judgement calls").
+
+## 5. Re-check with the same reviewer
 
 ```bash
 .claude/skills/droid-review/droid-review.sh --session <id>
@@ -118,11 +146,11 @@ compaction, a new day).
 This continues the droid session on the model and effort that wrote the
 review (read from the review file's header), so the reviewer that raised a
 finding is the one that grades the fix. It re-reads its own findings against
-the fixed code and reports fixed / still open / false positive plus anything
+the fixed code (the review file's title and `round` say which round it is) and reports fixed / still open / false positive plus anything
 new. Do not name a model on a re-check unless the user asks for a different
 reviewer. One round trip is enough; do not loop until the reviewer is silent.
 
-## 5. Report
+## 6. Report
 
 A short table: finding → verdict → what you did. Then the re-check result in
 one line. Quote the review file path so the user can read the raw review.
