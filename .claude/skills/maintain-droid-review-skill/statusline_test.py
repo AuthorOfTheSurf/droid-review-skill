@@ -128,11 +128,11 @@ class StatusLine(unittest.TestCase):
         os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
         self.assertEqual(self.f.rows(), [])
 
-    def test_finished_rows_show_for_a_minute(self):
-        self.f.run("ok", status="ok", finished=iso(50), duration_s=92, turns=14)
+    def test_finished_rows_show_for_fifteen_minutes(self):
+        self.f.run("ok", status="ok", finished=iso(890), duration_s=92, turns=14)
         self.f.run("bad", status="failed", finished=iso(5), duration_s=3, error="droid reported: no auth")
         self.f.run("int", status="interrupted", finished=iso(1), duration_s=7)
-        self.f.run("gone", status="ok", finished=iso(61), duration_s=1, turns=1)
+        self.f.run("gone", status="ok", finished=iso(901), duration_s=1, turns=1)
         rows = self.f.rows()
         self.assertEqual(len(rows), 3)
         text = "\n".join(rows)

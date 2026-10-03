@@ -11,7 +11,7 @@ Skills in `skills/` (what users install), maintainer tooling in
 # no model cost, ~1 min (Requires `droid` installed)
 .claude/skills/maintain-droid-review-skill/regress.sh
 
-# Tests              
+# Tests
 python3 .claude/skills/maintain-droid-review-skill/statusline_test.py
 python3 .claude/skills/maintain-droid-review-skill/reviews_test.py
 

@@ -42,6 +42,6 @@ echo "stub reviews on $models, ${delay}s per event; watch the status line in you
 PATH="$bin:$PATH" STUB_DROID_DELAY="$delay" STUB_DROID_TURNS=8 \
   "$r/skills/droid-review/droid-review.sh" --models "$models" "status line demo" > "$out" || true
 
-echo "finished; rows stay a minute, then this removes the stub files" >&2
+echo "finished; the rows stay while this waits a minute, then it removes the stub files" >&2
 sleep 61
 echo "done" >&2

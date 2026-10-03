@@ -12,7 +12,7 @@ what droid is doing). "review 2" is a re-check (--session), the second round.
 The estimate is the median time of this model's finished runs of the same
 kind (first review or re-check) in the same folder; without any, the bar
 just pulses. A finished run stays for
-a minute with its result, then the row goes. Nothing running, nothing
+fifteen minutes with its result, then the row goes. Nothing running, nothing
 printed — your status line looks as it did.
 
 In ~/.claude/settings.json, with your current status line command (if any)
@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from runs import (AMBER, BOLD, GREEN, GREY, RED, RESET, STALE_S, TEAL,  # noqa: E402,F401
                   alive, clock, find_reviews, log_ends, silent_for)
 
-SHOW_FINISHED_S = 60
+SHOW_FINISHED_S = 900
 SPIN = "◐◓◑◒"
 # Escapes that take no width: colors, and OSC 8 link open/close (ESC ] 8 ;; url ESC \).
 ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;;[^\033]*\033\\")

@@ -239,7 +239,7 @@ the status line you already have:
 review file's title and metadata carry the round too. The time after `~` is
 the median of that model's earlier finished runs of the same kind (first
 review or re-check) in the repo, and the bar fills toward it (amber once past it; a pulse until there is
-any history). A finished run stays a minute with a solid bar and its result in bold, then goes. With
+any history). A finished run stays fifteen minutes with a solid bar and its result in bold, then goes. With
 nothing running it prints nothing.
 
 It is one script, `skills/droid-review/statusline.py`, set in
