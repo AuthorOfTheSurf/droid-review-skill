@@ -500,15 +500,24 @@ fi
 # newest file; an id is looked up across the files. A model the caller named
 # wins; a session no file records runs on the default and says so.
 SESSION_EFFORT=""
+# The review files, last written first. Their names are this script's own
+# (a stamp, the branch, the model), so listing them with ls is safe.
+# shellcheck disable=SC2012
+newest_first() { ls -t .droid-reviews/*.md 2>/dev/null || true; }
 if [ -n "$SESSION" ]; then
   if [ "$SESSION" = "last" ]; then
     # Skip fan-out indexes: they table several sessions and record none.
-    SESSION_FILE="$(ls -t .droid-reviews/*.md 2>/dev/null | grep -v -- '-multi\.md$' | head -1 || true)"  # pipefail
+    SESSION_FILE="$(newest_first | while IFS= read -r f; do
+      if [[ "$f" != *-multi.md ]]; then printf '%s\n' "$f"; break; fi
+    done)"
     [ -n "$SESSION_FILE" ] || die "no review under .droid-reviews/ to continue"
     SESSION="$(sed -n 's/^- session: //p' "$SESSION_FILE" | head -1)"
     [ -n "$SESSION" ] || die "$SESSION_FILE has no session id"
   else
-    SESSION_FILE="$(grep -lx -- "- session: $SESSION" $(ls -t .droid-reviews/*.md 2>/dev/null) 2>/dev/null | head -1 || true)"
+    # One file at a time: handed no files at all, grep would wait on stdin.
+    SESSION_FILE="$(newest_first | while IFS= read -r f; do
+      if grep -qx -- "- session: $SESSION" "$f" 2>/dev/null; then printf '%s\n' "$f"; break; fi
+    done)"
   fi
   if [ -n "$SESSION_FILE" ]; then
     echo "continuing $SESSION_FILE ($SESSION)" >&2

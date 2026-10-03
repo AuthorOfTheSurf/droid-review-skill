@@ -47,6 +47,14 @@ newest_meta() { ls -t .droid-reviews/*.json | head -1; }
 head_sha="$(git rev-parse HEAD)"
 base_sha="$(git rev-parse master)"
 
+# 0. Continuing a session before any review exists: no file to look in, and
+# the lookup must not sit waiting on stdin (sleep holds it open).
+sleep 4 | { s=$(date +%s); run "$t/o0" --base master --session last; echo "$RC $(( $(date +%s) - s ))" > "$t/o0.rc"; }
+check "session last, no reviews: exit 2"   sh -c "[ \"\$(cut -d' ' -f1 '$t/o0.rc')\" = 2 ] && grep -q 'no review under' '$t/o0.err'"
+sleep 4 | { s=$(date +%s); run "$t/o0b" --base master --session no-such-session; echo "$RC $(( $(date +%s) - s ))" > "$t/o0b.rc"; }
+check "unknown session, no reviews: runs, does not wait on stdin" sh -c "[ \"\$(cut -d' ' -f1 '$t/o0b.rc')\" = 0 ] && [ \"\$(cut -d' ' -f2 '$t/o0b.rc')\" -lt 4 ]"
+rm -f .droid-reviews/*.md .droid-reviews/*.json .droid-reviews/*.log
+
 # 1. A review.
 export STUB_DROID_CALLS="$t/calls"
 run "$t/o1" --base master

@@ -200,7 +200,7 @@ then change the check in the same commit. It also checks the status line rows li
 and `reviews_test.py` (threads, the branch filter, round lines, notes).
 To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
 stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
-on the scripts (shellcheck: only report new warnings). When a fix covers a
+on the scripts (shellcheck is clean: any warning is new). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
 
 ## 5. Docs agree with the script
