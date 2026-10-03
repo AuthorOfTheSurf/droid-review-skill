@@ -13,9 +13,7 @@ how far HEAD has moved since, and the notes left on it:
     GLM-5.3-Flash · review · 2 rounds · session 71feef9c-4f42-4fac-90c1-99274f49d494
       1  Oct 2 23:18  ok in 3:00 · 22 turns   at 9f8e7d6, 4 commits behind
          → fixed 4 (date -r, quoting after --); 2 false positives
-         .droid-reviews/20261002-231805-review-status-mod-glm-5.3-flash.md
       2  Oct 3 00:07  ok in 0:41 · 9 turns    at 17e6822, current
-         .droid-reviews/20261003-000743-review-status-mod-glm-5.3-flash.md
 
 A note is the triaging agent's own account of what it did ("fixed 3, rejected
 the race as a false positive"), one line, stored in the run's .json under
@@ -261,8 +259,6 @@ def history(folder, every, color, now=None):
             out.append("  %d  %-17s %s%s%s" % (i, started, res, " " * max(1, 28 - width), fresh))
             for n in r["notes"]:
                 out.append("     " + p(BOLD, "→ ") + n.get("text", ""))
-            if r["review"]:
-                out.append("     " + p(GREY, r["review"]))
     return out
 
 

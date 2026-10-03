@@ -206,10 +206,8 @@ droid reviews · review-status-mod · HEAD 82474b1 · clean
 GLM-5.3-Flash · review · 2 rounds · session 71feef9c-4f42-4fac-90c1-99274f49d494
   1  today 23:18       ok in 3:02 · 12 turns       at 0cf440d, 9 commits behind
      → fixed date -r and the quoting after --; rejected the pid race as a false positive
-     .droid-reviews/20261002-231805-review-status-mod-glm-5.3-flash.md
   2  today 23:55       ok in 3:07 · 21 turns       at 274a06f, 8 commits behind
      → all three fixes confirmed; nothing new
-     .droid-reviews/20261002-235500-review-status-mod-glm-5.3-flash.md
 ```
 
 Each round says when it ran, how it ended, and the commit it reviewed against

@@ -181,8 +181,7 @@ class Notes(unittest.TestCase):
         out = reviews.history(self.f.path, True, False, now=NOW)
         at = next(i for i, l in enumerate(out) if l.startswith("  1  "))
         self.assertEqual(out[at + 1], "     → fixed the crash")
-        self.assertTrue(out[at + 2].strip().endswith("20261003-000000-feat-glm.md"))
-        self.assertTrue(out[at + 3].startswith("  2  "))
+        self.assertTrue(out[at + 2].startswith("  2  "))   # a round without a note is one line
         self.assertTrue(any("· review · 2 rounds · session s1" in l for l in out))
 
 

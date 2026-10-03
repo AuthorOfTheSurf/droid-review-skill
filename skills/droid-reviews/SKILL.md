@@ -33,6 +33,6 @@ triaged in this conversation and can note now with
 How to read it: one block per droid session, a review with its re-checks
 (rounds 1, 2, …). Each round shows when it ran, how it ended (ok in, failed
 after, interrupted, running, stopped), the commit it reviewed with `current`
-or how many commits behind HEAD it is, and its review file. A `→` line is the
+or how many commits behind HEAD it is. A `→` line is the
 note the agent that triaged the round left on it: what it did about the
 review, in its own words, not something the history verified.
