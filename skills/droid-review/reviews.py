@@ -33,8 +33,8 @@ from datetime import datetime
 
 sys.dont_write_bytecode = True   # no __pycache__ beside the skill
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from statusline import (AMBER, BOLD, GREEN, GREY, RED, RESET, STALE_S, TEAL,  # noqa: E402
-                        alive, clock, find_reviews, log_ends, silent_for)
+from runs import (AMBER, BOLD, GREEN, GREY, RED, RESET, STALE_S, TEAL,  # noqa: E402
+                  alive, clock, find_reviews, log_ends, silent_for)
 
 STAMP = re.compile(r"^\d{8}-\d{6}-")
 

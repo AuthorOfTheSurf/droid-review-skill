@@ -1,6 +1,6 @@
 ---
 name: maintain-droid-review-skill
-description: Maintainer pass over the droid-review, droid-feedback and droid-reviews skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
+description: Maintainer pass over the droid-review, droid-feedback and droid-history skills — check them against the installed droid CLI (model catalog, effort levels, flags, the stream-json events the script parses), move the model shortcuts the user picks, run the script's paths against a stub droid, and keep README / SKILL.md / the script in agreement. Run only when the user asks to maintain, check, or update the droid skills or their shortcuts, or after a droid upgrade.
 ---
 
 # Maintain the droid-review skill
@@ -175,7 +175,7 @@ checks what each leaves behind:
 It covers a review, `--session last`, a fan-out, a fan-out where both fail
 silently, droid reporting an error, droid printing garbage, an interrupt of a
 single run and of a fan-out (TERM to the whole process group),
-droid-feedback, and `--note` / `--history` / droid-reviews (a note's place in
+droid-feedback, and `--note` / `--history` / droid-history (a note's place in
 the .json and the review file, that it leaves `--session last` alone, rounds,
 how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line

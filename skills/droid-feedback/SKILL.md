@@ -84,7 +84,7 @@ apply only what the user picks, plus the factual fixes. If the ask was itself
 about taste, expect the whole review to land in this column, and do not let its
 length pressure you into applying it wholesale.
 
-Then leave one line on the result saying what you applied, so `/droid-reviews`
+Then leave one line on the result saying what you applied, so `/droid-history`
 shows what came of it: `droid-feedback.sh --note <result file> "applied the
 three label fixes; the renaming is with the user"`.
 

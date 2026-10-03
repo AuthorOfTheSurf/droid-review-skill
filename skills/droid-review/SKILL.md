@@ -117,7 +117,7 @@ unless the user's standing instruction for the branch says to.
 
 ## 4. Note what you did
 
-Leave one line on the review saying what came of it, so `/droid-reviews` shows
+Leave one line on the review saying what came of it, so `/droid-history` shows
 the history as finding → what you did → the reviewer's verdict on it:
 
 ```bash

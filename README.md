@@ -37,7 +37,7 @@ Benefits:
 |---|---|
 | **`/droid-review`** | wraps droid's own `/review` skill. Receive a structured code review: severity, file:line, the scenario that breaks. Triage is confirmed / pre-existing / false positive / nit, then fix and re-check. |
 | **`/droid-feedback`** | an open-ended prompt, literally ask for feedback like "is this approach sane?". Receive prose back, no imposed format. Use when you want feedback, not code review |
-| **`/droid-reviews`** | the history: this branch's reviews, each with its re-checks, the commit it reviewed and how far you've moved since, and what your agent did about it. Runs no model |
+| **`/droid-history`** | the history: this branch's reviews, each with its re-checks, the commit it reviewed and how far you've moved since, and what your agent did about it. Runs no model |
 
 ### When to use it
 
@@ -76,7 +76,7 @@ A run takes anywhere from ~40s to ~8 minutes depending on model, branch size, an
 
 ### Install
 
-Install the three skills together — `droid-feedback` and `droid-reviews` are thin wrappers around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
+Install the three skills together — `droid-feedback` and `droid-history` are thin wrappers around the script in `droid-review`, so they share one implementation and can't drift apart. Have your main coding agent help you with this, they are great at this sort of task!
 
 The usual way: clone this repo and link the skills into your personal skills
 folder, so a `git pull` here updates every project:
@@ -85,7 +85,7 @@ folder, so a `git pull` here updates every project:
 git clone https://github.com/AuthorOfTheSurf/droid-review-skill
 cd droid-review-skill
 mkdir -p ~/.claude/skills
-ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" "$PWD/skills/droid-reviews" ~/.claude/skills/
+ln -s "$PWD/skills/droid-review" "$PWD/skills/droid-feedback" "$PWD/skills/droid-history" ~/.claude/skills/
 ```
 
 Run `git pull` in the clone now and then to pick up new model shortcuts. To
@@ -95,14 +95,14 @@ Or copy them into one project (a copy never updates):
 
 ```bash
 mkdir -p .claude/skills
-cp -r path/to/droid-review-skill/skills/droid-review path/to/droid-review-skill/skills/droid-feedback path/to/droid-review-skill/skills/droid-reviews .claude/skills/
+cp -r path/to/droid-review-skill/skills/droid-review path/to/droid-review-skill/skills/droid-feedback path/to/droid-review-skill/skills/droid-history .claude/skills/
 ```
 
 Reviews land in `.droid-reviews/` in whichever repo you run from. The folder
 ignores itself (the script puts a `.gitignore` of `*` in it), so no repo needs
 a line for it.
 
-Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review`, `/droid-feedback` and `/droid-reviews` autocomplete and be available
+Usually you will need to restart your `claude` in order to pick up new skills. After restart you should see `/droid-review`, `/droid-feedback` and `/droid-history` autocomplete and be available
 
 ### Model shortcuts
 
@@ -197,7 +197,7 @@ keeps what finished. `--models` with no list still prints the shortcuts.
 
 ### History, and what came of each review
 
-`/droid-reviews` (or `droid-review.sh --history`) lists the reviews on this
+`/droid-history` (or `droid-review.sh --history`) lists the reviews on this
 branch, newest first, each with its re-checks:
 
 ```

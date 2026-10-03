@@ -1,5 +1,5 @@
 ---
-name: droid-reviews
+name: droid-history
 description: Show the droid reviews run in this repo as a history — each review with its re-check rounds, when they ran, how they ended, the commit each reviewed and how far HEAD has moved since, and what was done about each. Human-invoked; run when the user asks what droid reviews exist, when one last ran, or how current a review is.
 argument-hint: "[all]"
 ---
@@ -9,16 +9,16 @@ argument-hint: "[all]"
 Prints what `.droid-reviews/` holds for this branch, newest first. Read-only:
 it runs no model and changes nothing.
 
-**Where the script is.** `droid-reviews.sh` sits next to this file and is a
+**Where the script is.** `droid-history.sh` sits next to this file and is a
 thin wrapper; the implementation lives in the **droid-review** skill folder
 beside it, so both must be installed. The path is
-`.claude/skills/droid-reviews/droid-reviews.sh` for a project install and
-`~/.claude/skills/droid-reviews/droid-reviews.sh` for a global one. Use
+`.claude/skills/droid-history/droid-history.sh` for a project install and
+`~/.claude/skills/droid-history/droid-history.sh` for a global one. Use
 whichever directory this SKILL.md was loaded from.
 
 ```bash
-.claude/skills/droid-reviews/droid-reviews.sh        # this branch
-.claude/skills/droid-reviews/droid-reviews.sh all    # every branch
+.claude/skills/droid-history/droid-history.sh        # this branch
+.claude/skills/droid-history/droid-history.sh all    # every branch
 ```
 
 Pass `all` through when the user gave it.

@@ -184,12 +184,12 @@ check "history: a review and its 2 re-checks" grep -q '^GLM-5.3-Flash · review 
 check "history: the note under round 1"    sh -c "grep -A1 '^  1 .* at ${head_sha:0:7}, 1 commit behind' '$t/h1' | grep -q '→ fixed the crash; the race is a false positive'"
 check "history: failed rounds say why"     grep -q 'failed after .*stub: model unavailable' "$t/h1"
 check "history: feedback is listed"        grep -q '· feedback · 1 round' "$t/h1"
-"$r/skills/droid-reviews/droid-reviews.sh" > "$t/h2" 2>&1
-check "droid-reviews: the same history"    cmp -s "$t/h1" "$t/h2"
+"$r/skills/droid-history/droid-history.sh" > "$t/h2" 2>&1
+check "droid-history: the same history"    cmp -s "$t/h1" "$t/h2"
 git checkout -q -b other
-"$r/skills/droid-reviews/droid-reviews.sh" > "$t/h3" 2>&1
+"$r/skills/droid-history/droid-history.sh" > "$t/h3" 2>&1
 check "history: none on another branch"    grep -q '^no reviews on this branch (--all for every branch) yet$' "$t/h3"
-"$r/skills/droid-reviews/droid-reviews.sh" all > "$t/h4" 2>&1
+"$r/skills/droid-history/droid-history.sh" all > "$t/h4" 2>&1
 check "history: all shows every branch"    sh -c "head -1 '$t/h4' | grep -q '· every branch ·' && grep -q '3 rounds' '$t/h4'"
 git checkout -q feat
 
