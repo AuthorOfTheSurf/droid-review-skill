@@ -130,10 +130,13 @@ a higher level is opt-in for the run you name it on (`/droid-review luna max`).
 A max-effort review can take half an hour.
 
 Any other model id droid accepts works as the first word too (`droid exec -m x
---list-tools` lists them all; `droid exec --help` lags behind). The script
-checks the model before it starts droid, and the effort against the levels
-that model supports, so `gemini max` fails at once with the levels Gemini
-takes. `droid-review.sh --efforts` prints every model's levels and default
+--list-tools` lists them all; `droid exec --help` lags behind). A shortcut at
+droid's default effort starts at once: there is nothing to check, so droid is
+asked nothing first. An effort you name is checked against the levels that
+model supports before droid starts, so `gemini max` fails at once with the
+levels Gemini takes, and so is a model id that is not a shortcut, against the
+ids your droid install lists (about a second; only an id it does not list is
+put to droid itself, which takes ten or so). `droid-review.sh --efforts` prints every model's levels and default
 (`--efforts luna` just one) — the same table droid's `/model` picker shows,
 read from the droid install, so it covers models `droid exec --help` leaves
 out — with each model's price multiplier and whether it is new, on sale or

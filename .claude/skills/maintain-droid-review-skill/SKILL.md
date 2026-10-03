@@ -55,7 +55,12 @@ Each check is cheap and needs no model run unless it says so.
 `droid exec -m x --list-tools` accepts (stderr), the `Model details:` in
 `droid exec --help`, and the model registry built into the droid binary — the
 same table the interactive `/model` picker shows, which fills in every model the
-help leaves out.
+help leaves out. Only the listings (`--efforts`, `--whats-new`) ask for the
+first, which takes ten seconds or more. A run reads `catalog local`, the help
+plus the registry, and only when it has something to check (an effort, or a
+model that is not a shortcut); an id those two do not list is then put to
+droid before the script says "no such model". A shortcut at droid's default
+effort reads nothing.
 
 ```bash
 d=skills/droid-review/droid-review.sh
@@ -91,8 +96,18 @@ $d --model droid-review-no-such-model      # "droid has no model ..."
 $d "gemini max"                            # "... takes reasoning effort low,medium,high, not 'max'"
 ```
 
-If either starts droid, the catalog came back empty: read the stderr line
-("could not read droid's model list") and fix the parser.
+`regress.sh` checks both, and that a plain review and a fan-out of shortcuts
+never ask droid for its model list. If either starts droid, the catalog came
+back empty: read the stderr line ("could not read droid's model list") and fix
+the parser. The local catalog must know the models the help leaves out: pick
+one (an id `$d --efforts` lists and `droid exec --help` does not) and time a
+bad effort on it. It must exit 2 in about a second, naming the model's levels;
+ten seconds means the registry stopped matching and the run fell back to
+asking droid:
+
+```bash
+time $d --model gpt-6.1-sol --effort nonsense
+```
 
 **Reviewer tool set.** The script runs `--auto medium --remove-tools ApplyPatch`.
 

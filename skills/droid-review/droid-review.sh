@@ -32,8 +32,11 @@
 # instruction with --session. Its first word picks the model when it is exactly
 # a shortcut (--models) or a droid model id, and the word after that sets the
 # reasoning effort when it is exactly an effort level. --model wins over both.
-# Without a model the default is glm. Efforts are checked against the levels
-# each model supports before droid runs; --efforts lists them.
+# Without a model the default is glm. A shortcut at droid's default effort
+# starts at once, with nothing asked of droid first. An effort you name is
+# checked against the levels the model supports, and a model id that is not a
+# shortcut against the ids this droid install knows, before droid runs;
+# --efforts lists both.
 #
 # Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT.
 #
@@ -128,9 +131,18 @@ is_effort() {
 # binary — the same table its /model picker reads, which agrees with the help
 # wherever both list a model. Empty if every format changed, in which case
 # nothing is validated and droid gets the last word.
+#
+# Asking droid which ids it accepts takes ten seconds or more (it goes to the
+# network), so only the listings (--efforts, --whats-new) do. `catalog local`
+# is what a run uses, and only when it has something to check: the ids in the
+# help plus the registry's, in about a second. That covers every id droid
+# accepts; the registry also keeps ids droid has retired, and those droid
+# turns down itself.
 catalog() {
-  HELP="$(droid exec --help 2>/dev/null || true)" \
-  ACCEPTED="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)" \
+  local accepted=""
+  [ "${1:-}" = "local" ] || \
+    accepted="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)"
+  HELP="$(droid exec --help 2>/dev/null || true)" ACCEPTED="$accepted" LOCAL="${1:-}" \
   python3 -c '
 import mmap, os, re, shutil
 section, ids, details = None, [], {}
@@ -174,7 +186,10 @@ for line in os.environ["ACCEPTED"].splitlines():
             if model_id and model_id not in accepted:
                 accepted.append(model_id)
         listing = False
-for model_id in accepted or [model_id for model_id, _ in ids]:
+known = [model_id for model_id, _ in ids]
+if os.environ["LOCAL"]:
+    known += [model_id for model_id in built if model_id not in known]
+for model_id in accepted or known:
     print(model_id, *efforts.get(model_id) or built.get(model_id) or ("?", "-"))
 '
 }
@@ -386,17 +401,68 @@ command -v droid >/dev/null || \
   die "droid CLI not installed: https://docs.factory.ai/droid-cli/quickstart"
 command -v python3 >/dev/null || die "python3 not found (used to parse droid's JSON)"
 
-# A fan-out child is handed the parent's catalog rather than asking droid again.
+# The catalog is read only when a run has something to check against it: a
+# word that may be a model id, or an effort. A shortcut at droid's default
+# effort never does, so its files (and its status line row) are there at once.
+# A fan-out child is handed what its parent read rather than reading it again.
 CATALOG="${_DROID_REVIEW_CATALOG:-}"
-[ -n "$CATALOG" ] || CATALOG="$(catalog || true)"
-[ -n "$CATALOG" ] || echo "could not read droid's model list; skipping model checks" >&2
+CATALOG_READ="${CATALOG:+1}"
+load_catalog() {   # not in a subshell: it sets CATALOG
+  [ -z "$CATALOG_READ" ] || return 0
+  CATALOG_READ=1
+  CATALOG="$(catalog local || true)"
+  [ -n "$CATALOG" ] || echo "could not read droid's model list; skipping model checks" >&2
+}
 catalog_entry() { printf '%s\n' "$CATALOG" | awk -v m="$1" '$1 == m { print $2; exit }'; }
+# Is $1 an id droid takes? What this install lists, and only for an id it does
+# not list, droid's own answer (slow, once): the registry may stop being
+# readable, and "no such model" should be droid's word, not a guess.
+CATALOG_FULL=""
+known_model() {
+  local full
+  load_catalog
+  [ -z "$(catalog_entry "$1")" ] || return 0
+  [ -z "$CATALOG_FULL" ] || return 1
+  CATALOG_FULL=1
+  full="$(catalog || true)"
+  [ -z "$full" ] || CATALOG="$full"
+  [ -n "$(catalog_entry "$1")" ]
+}
+# An id a shortcut points at is known without asking.
+is_shortcut_target() {
+  local s
+  for s in $SHORTCUTS; do [ "$(shortcut "$s")" != "$1" ] || return 0; done
+  return 1
+}
 
 # The ask's first word picks the model when it is exactly a shortcut or a model
 # id, and the next word the effort when it is exactly an effort level. The rest
 # of the ask is left as typed, newlines included.
 drop_word() { ASK="${ASK#"$1"}"; ASK="${ASK#"${ASK%%[![:space:]]*}"}"; }
-is_model() { shortcut "$1" >/dev/null || [ -n "$(catalog_entry "$1")" ]; }
+# Is a word of the ask a model? A shortcut is. So is an id this install lists,
+# but an ask mostly starts with ordinary words, and those must cost nothing:
+# only a word shaped like an id (a digit in it: gpt-6.1-sol, custom:x-0) is
+# looked up, and put to droid if the install does not list it. The few ids
+# without a digit (inkling) are found by a plain search of the droid binary's
+# registry: a fifth of a second for a word that is not there, so that an id
+# is never taken for a word and run on the default model. (mmap's find, not
+# grep: the system grep takes two seconds over the binary.)
+is_model() {
+  ! shortcut "$1" >/dev/null || return 0
+  if [[ "$1" =~ ^[a-z][a-z0-9.:-]*[0-9][a-z0-9.:-]*$ ]]; then
+    load_catalog
+    [ -z "$(catalog_entry "$1")" ] || return 0
+    known_model "$1"
+  elif [[ "$1" =~ ^[a-z][a-z-]*$ ]]; then
+    python3 -c '
+import mmap, os, shutil, sys
+with open(os.path.realpath(shutil.which("droid")), "rb") as f:
+    t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+sys.exit(0 if t.find(b"{id:\"%s\",name:" % sys.argv[1].encode()) >= 0 else 1)' "$1" 2>/dev/null
+  else
+    return 1
+  fi
+}
 # A comma list of models as the first word is a fan-out, like --models.
 is_model_list() {
   local m
@@ -416,7 +482,8 @@ if [ -n "$MODELS" ]; then
     die "'$word' is a model; name the models in --models only (effort: --effort)"
   fi
   for m in ${MODELS//,/ }; do
-    shortcut "$m" >/dev/null || [ -z "$CATALOG" ] || [ -n "$(catalog_entry "$m")" ] || \
+    ! shortcut "$m" >/dev/null || continue
+    known_model "$m" || [ -z "$CATALOG" ] || \
       die "droid has no model '$m' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"
   done
 elif [ -z "$MODEL" ] && [ -n "$ASK" ]; then
@@ -465,7 +532,11 @@ if [ -z "$MODELS" ]; then
   EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${DROID_REVIEW_EFFORT:-}}}}"
 fi
 
-if [ -n "$CATALOG" ] && [ -z "$MODELS" ]; then
+CHECK=""
+if [ -z "$MODELS" ] && { [ -n "$EFFORT" ] || ! is_shortcut_target "$MODEL"; }; then
+  CHECK=1; known_model "$MODEL" || true
+fi
+if [ -n "$CHECK" ] && [ -n "$CATALOG" ]; then
   supported="$(catalog_entry "$MODEL")"
   [ -n "$supported" ] || \
     die "droid has no model '$MODEL' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"

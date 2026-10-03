@@ -3,8 +3,8 @@
 # what each one leaves behind: exit code, stdout, the review file's header, and
 # the run metadata (.json) — commit, base, uncommitted counts, status. Costs no
 # model run: the stub answers `exec`, the real droid answers --help,
-# --list-tools and --version (so the catalog is real). Prints one line per
-# check and exits non-zero when any failed.
+# --list-tools and --version (so the catalog is real, where a run reads it).
+# Prints one line per check and exits non-zero when any failed.
 #
 #   .claude/skills/maintain-droid-review-skill/regress.sh
 set -uo pipefail
@@ -48,7 +48,11 @@ head_sha="$(git rev-parse HEAD)"
 base_sha="$(git rev-parse master)"
 
 # 1. A review.
+export STUB_DROID_CALLS="$t/calls"
 run "$t/o1" --base master
+# The default model at droid's default effort has nothing to check, so nothing
+# slow stands between the command and its files.
+check "review: droid not asked for its model list" sh -c "! grep -q -- --list-tools '$t/calls'"
 md="$(sed -n 1p "$t/o1")"; m="$(meta_of "$md")"
 check "review: exit 0"                     [ "$RC" = 0 ]
 check "review: prints path and session"    [ "$(wc -l < "$t/o1")" -eq 2 ]
@@ -86,8 +90,23 @@ run "$t/o2d" --base master --session last
 check "named effort: used"                 json "$(meta_of "$(sed -n 1p "$t/o2c")")" 'm["effort"]=="max"'
 check "named effort: kept by its re-check" json "$(meta_of "$(sed -n 1p "$t/o2d")")" 'm["effort"]=="max" and m["round"]==2'
 
+# What a run does check, it checks before droid starts.
+: > "$t/calls"
+run "$t/o2e" --base master --model droid-review-no-such-model
+check "unknown model: exit 2, says so"     sh -c "[ '$RC' = 2 ] && grep -q \"droid has no model 'droid-review-no-such-model'\" '$t/o2e.err'"
+run "$t/o2f" --base master glm --effort nonsense
+check "unknown effort: exit 2, lists the levels" sh -c "[ '$RC' = 2 ] && grep -q 'takes reasoning effort .*, not .nonsense.' '$t/o2f.err'"
+check "neither started droid"              sh -c "! grep -q stream-json '$t/calls'"
+
+# Ordinary words of an ask are not looked up as models.
+: > "$t/calls"
+run "$t/o2g" --base master "auth changes"
+check "plain ask: droid asked nothing more than a bare run" sh -c "[ '$RC' = 0 ] && ! grep -q -- --list-tools '$t/calls' && [ \"\$(grep -c -- --help '$t/calls')\" -le 1 ]"
+
 # 3. Fan-out.
+: > "$t/calls"
 run "$t/o3" --base master --models glm,gemini
+check "fan-out: droid not asked for its model list" sh -c "! grep -q -- --list-tools '$t/calls'"
 check "fan-out: exit 0"                    [ "$RC" = 0 ]
 check "fan-out: two ok lines"              [ "$(grep -c "	ok	" "$t/o3")" = 2 ]
 for p in $(grep '	' "$t/o3" | cut -f3); do

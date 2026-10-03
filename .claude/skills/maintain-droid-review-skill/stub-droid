@@ -18,7 +18,10 @@
 # STUB_DROID_TURNS=<n> makes the ok run take n turns (default 2).
 # STUB_DROID_FAST=<model id> ignores the delay for that model, so in a fan-out
 # it finishes while the others are still running.
+# STUB_DROID_CALLS=<file> appends each call's arguments to it, one line a call.
 set -euo pipefail
+
+[ -z "${STUB_DROID_CALLS:-}" ] || printf '%s\n' "$*" >> "$STUB_DROID_CALLS"
 
 for a in "$@"; do
   case "$a" in
