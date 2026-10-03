@@ -139,9 +139,11 @@ class Notes(unittest.TestCase):
     def test_a_note_goes_in_the_json_and_the_review_file(self):
         reviews.note(self.f.path, ".droid-reviews/20261003-000000-feat-glm.md", "fixed 2;\n rejected 1", now=NOW)
         reviews.note(self.f.path, "20261003-000000-feat-glm.json", "then the third", now=NOW)
-        m = json.load(open(self.meta))
+        with open(self.meta) as f:
+            m = json.load(f)
         self.assertEqual([n["text"] for n in m["responses"]], ["fixed 2; rejected 1", "then the third"])
-        text = open(self.md).read()
+        with open(self.md) as f:
+            text = f.read()
         self.assertEqual(text.count("## Response"), 1)
         self.assertTrue(text.rstrip().endswith(": then the third"))
         self.assertIn(": fixed 2; rejected 1\n", text)
