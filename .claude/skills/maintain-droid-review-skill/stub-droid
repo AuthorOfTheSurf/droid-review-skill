@@ -48,7 +48,8 @@ case "${STUB_DROID_MODE:-ok}" in
   ok)
     ev "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"model\":\"$model\",\"reasoning_effort\":\"$effort\"}"
     ev '{"type":"tool_call","messageId":"m1","toolName":"Read","parameters":{"file_path":"README.md"}}'
-    ev '{"type":"tool_call","messageId":"m2","toolName":"Execute","parameters":{"command":"git diff --stat"}}'
+    ev '{"type":"tool_call","id":"c2","messageId":"m2","toolName":"Execute","parameters":{"command":"git diff --stat"}}'
+    printf '%s\n' '{"type":"tool_result","id":"c2","toolId":"Execute","isError":false,"value":"1 file changed"}'
     turns="${STUB_DROID_TURNS:-2}"
     for ((i = 3; i <= turns; i++)); do
       case $((i % 3)) in

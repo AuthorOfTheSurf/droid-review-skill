@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Unit tests for skills/droid-review/reviews.py: threads, branch filter, the
-round lines, notes. Builds .droid-reviews/ folders in a temp dir; the git
-parts (freshness against HEAD) are covered live by regress.sh.
+round lines, notes, and --compare. Builds .droid-reviews/ folders in a temp
+dir (--compare in a real throwaway repo); freshness against HEAD in the
+history is covered live by regress.sh.
 
     python3 .claude/skills/maintain-droid-review-skill/reviews_test.py
 """
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -185,6 +187,137 @@ class Notes(unittest.TestCase):
         self.assertEqual(out[at + 1], "     → fixed the crash")
         self.assertTrue(out[at + 2].startswith("  2  "))   # a round without a note is one line
         self.assertTrue(any("· review · 2 rounds · session s1" in l for l in out))
+
+
+class Compare(unittest.TestCase):
+    """--compare, in a real repo: a branch that changed line 5 of a.py and
+    added b.py, reviewed with c.txt edited but not committed."""
+
+    def sh(self, *args):
+        return subprocess.run(args, cwd=self.repo, capture_output=True, text=True, check=True).stdout.strip()
+
+    def write(self, name, text):
+        with open(os.path.join(self.repo, name), "w") as f:
+            f.write(text)
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = os.path.realpath(tmp.name)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo)
+        git = lambda *a: self.sh("git", "-c", "user.name=t", "-c", "user.email=t@t", *a)
+        self.git = git
+        git("init", "-q", "-b", "master")
+        lines = ["line %d" % i for i in range(1, 31)]
+        self.write("a.py", "\n".join(lines) + "\n")
+        self.write("c.txt", "one\n")
+        git("add", "."); git("commit", "-q", "-m", "base")
+        self.base = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "feat")
+        lines[4] = "line 5, changed on the branch"
+        self.lines = lines
+        self.write("a.py", "\n".join(lines) + "\n")
+        self.write("b.py", "new\n")
+        git("add", "."); git("commit", "-q", "-m", "feat")
+        self.head = git("rev-parse", "HEAD")
+        self.write("c.txt", "one\ntwo, uncommitted at the review\n")
+        self.folder = os.path.join(self.repo, ".droid-reviews")
+        os.mkdir(self.folder)
+        self.write(".droid-reviews/.gitignore", "*\n")
+        self.meta = {
+            "status": "ok", "kind": "review", "model": "glm-5.3-flash", "pid": 1, "session": "s1", "round": 1,
+            "started": iso(600), "branch": "feat", "head": self.head, "scope": "branch",
+            "base": {"merge_base": self.base}, "uncommitted": {"staged": 0, "unstaged": 1, "untracked": 0},
+            "uncommitted_files": {"c.txt": git("hash-object", "c.txt")},
+            "files": {"review": ".droid-reviews/r.md"},
+        }
+        self.save()
+        self.write(".droid-reviews/r.md", "# droid review\n\n- session: s1\n- turns: 2, 1s\n\n"
+                   "- high `a.py:5` breaks. Also a.py:20-21 and b.py:1, c.txt:2.\n"
+                   "  See http://example.com:80 and gone.py:3 (no such file).\n"
+                   "\n## Response\n\n- 2026-10-03T00:00:00+08:00: fixed x.py:9\n")
+
+    def save(self):
+        with open(os.path.join(self.folder, "r.json"), "w") as f:
+            json.dump(self.meta, f)
+
+    def compare(self):
+        return "\n".join(reviews.compare(self.folder, "last", now=NOW))
+
+    def test_nothing_changed(self):
+        out = self.compare()
+        self.assertIn("reviewed %s · HEAD is still there" % self.head[:7], out)
+        self.assertIn("uncommitted then: 1 file · now: 1 file", out)
+        self.assertIn("nothing has changed since the review", out)
+
+    def test_cites_only_real_files_above_the_notes(self):
+        out = self.compare()
+        self.assertIn("cited in the review: 4", out)
+        for no in ("example.com", "gone.py", "x.py"):
+            self.assertNotIn(no, out)
+
+    def test_which_lines_the_branch_changed(self):
+        out = self.compare()
+        self.assertRegex(out, r"a\.py:5 +changed on this branch · unchanged")
+        self.assertRegex(out, r"a\.py:20-21 +not changed on this branch · unchanged")
+        self.assertRegex(out, r"b\.py:1 +new on this branch · unchanged")
+        # c.txt:2 is the uncommitted line: the branch's, read from the working copy.
+        self.assertRegex(out, r"c\.txt:2 +changed on this branch · unchanged \(uncommitted then, the same now\)")
+
+    def test_a_commit_since_and_a_line_that_moved(self):
+        self.lines[19] = "line 20, fixed"
+        self.write("a.py", "added at the top\n" + "\n".join(self.lines) + "\n")
+        self.git("commit", "-q", "-m", "fix", "--", "a.py")
+        out = self.compare()
+        self.assertIn("1 commit on", out)
+        self.assertRegex(out, r"changed since the review: 1 file\n +a\.py +committed")
+        self.assertRegex(out, r"a\.py:20-21 +not changed on this branch · changed since \(committed\)")
+        self.assertRegex(out, r"a\.py:5 +changed on this branch · unchanged, now line 6")
+
+    def test_unstaged_staged_and_untracked_changes_count(self):
+        self.lines[19] = "line 20, edited but not committed"
+        self.write("a.py", "\n".join(self.lines) + "\n")       # unstaged
+        self.write("b.py", "new\nstaged\n")
+        self.git("add", "b.py")                                   # staged
+        self.write("notes.txt", "untracked\n")                   # untracked
+        out = self.compare()
+        self.assertIn("HEAD is still there", out)
+        self.assertIn("changed since the review: 3 files", out)
+        self.assertRegex(out, r"a\.py +uncommitted\n")
+        self.assertRegex(out, r"b\.py +uncommitted\n")
+        self.assertRegex(out, r"notes\.txt +uncommitted \(untracked\)")
+        self.assertRegex(out, r"a\.py:20-21 +not changed on this branch · changed since \(uncommitted\)")
+        self.assertRegex(out, r"b\.py:1 +new on this branch · changed since \(uncommitted\)")
+
+    def test_a_file_uncommitted_then_and_different_now(self):
+        self.write("c.txt", "one\ntwo, edited again\n")
+        out = self.compare()
+        self.assertRegex(out, r"c\.txt +uncommitted then, different now")
+        self.assertRegex(out, r"c\.txt:2 +uncommitted then and different now: its lines cannot be compared")
+        # Committing it as the reviewer saw it is no change; committing something else is.
+        self.git("commit", "-q", "-am", "c")
+        self.assertRegex(self.compare(), r"c\.txt +committed, uncommitted then, different now")
+
+    def test_a_review_from_before_the_files_were_recorded_says_so(self):
+        del self.meta["uncommitted_files"]
+        self.save()
+        out = self.compare()
+        self.assertIn("which 1 file it saw is not known", out)
+        self.assertRegex(out, r"a\.py:5 +changed on this branch · unchanged \(if it was committed then\)")
+
+    def test_a_reviewed_commit_the_repo_no_longer_has(self):
+        self.meta["head"] = "0" * 40
+        self.save()
+        self.assertIn("no longer has", self.compare())
+
+    def test_near_counts(self):
+        hs = [(10, 1, 10, 1), (40, 0, 41, 2)]   # line 10 changed; two lines inserted after 40
+        self.assertTrue(reviews.touched(hs, 13, 13, 0))
+        self.assertFalse(reviews.touched(hs, 14, 14, 0))
+        self.assertTrue(reviews.touched(hs, 44, 44, 0))    # the insertion sits between 40 and 41
+        self.assertEqual(reviews.moved(hs, 30), 30)
+        self.assertEqual(reviews.moved(hs, 50), 52)
 
 
 if __name__ == "__main__":

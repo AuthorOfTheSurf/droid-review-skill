@@ -68,7 +68,19 @@ many staged / unstaged / untracked files were uncommitted. `status` is
 `running` while it goes, then `ok`, `failed` or `interrupted`. Before triaging
 a review you did not just run, compare its `head` with `git rev-parse HEAD`
 and its uncommitted counts with `git status`: commits or changes since then can
-have fixed a finding or made it stale, so say which.
+have fixed a finding or made it stale, so say which. `--compare` does that
+comparison for you, with no model run:
+
+```bash
+.claude/skills/droid-review/droid-review.sh --compare            # the newest finished review
+.claude/skills/droid-review/droid-review.sh --compare <review file | session id>
+```
+
+It lists the files changed since the review — committed, staged, unstaged and
+untracked all count — and, for each `file:line` the review cites, two things:
+whether this branch changed that line (or one within 3 of it), and whether it
+has changed since the review. A file that was uncommitted when the review ran
+is compared by the content the run recorded.
 
 ### Several models at once
 
@@ -99,7 +111,11 @@ Read the file. For **each** finding, open the code it names and decide:
 - **Confirmed** — you reproduced the reasoning (or a test) and it is a real
   defect in the branch's changes.
 - **Pre-existing** — real, but not introduced by this branch. Say so; do not
-  fix unless trivial and adjacent.
+  fix unless trivial and adjacent. `--compare` marks each cited line `changed
+  on this branch`, `new on this branch` or `not changed on this branch`: the
+  last is where to look for these. It is a pointer, not the verdict — a branch
+  can break old code by changing its caller — so read the code before you
+  call a finding pre-existing.
 - **False positive** — the reviewer misread the code. Say what it missed, in
   one sentence, so the user can trust the verdict.
 - **Nit / style** — real but cosmetic. Fix only if a one-liner.

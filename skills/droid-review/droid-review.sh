@@ -22,6 +22,7 @@
 #   droid-review.sh --session last        # the newest review's session, by file
 #   droid-review.sh --history [--all]     # this branch's reviews (--all: every branch), rounds and notes
 #   droid-review.sh --note <review|session|last> "<what you did about it>"
+#   droid-review.sh --compare [review|session|last]   # a review against the repo now
 #
 # A continuation runs on the model and effort that wrote the review, read from
 # the review file's header, so the reviewer that raised a finding is the one
@@ -58,6 +59,12 @@
 # file, a session id for its newest round, or last): what the agent that
 # triaged it did about it. It goes in the .json and under "## Response" in the
 # review file, and --history shows it under its round.
+#
+# --compare (default: last) sets a finished review against the repo as it is
+# now, with no model run: the files changed since, committed or not (staged,
+# unstaged and untracked all count), and for each file:line the review cites,
+# whether this branch changed that line (if not, the finding is about code
+# that was already there) and whether it has changed since the review.
 #
 # Fan-out: --models a,b,c (or a comma list as the ask's first word) runs one
 # child of this script per model, in parallel, each with that model's shortcut
@@ -225,6 +232,7 @@ WHATS_NEW=""     # --whats-new: new, discounted and deprecated models, then exit
 ALL=""           # --all: --history on every branch
 HISTORY=""       # --history: list this repo's reviews, then exit (--all: every branch)
 NOTE=()          # --note <review> <text>: record what was done about a review
+COMPARE=""       # --compare [review]: a review against the repo now, then exit
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -249,6 +257,8 @@ while [ $# -gt 0 ]; do
     --whats-new) WHATS_NEW=1; shift ;;
     --history) HISTORY="history"; shift ;;
     --all)     ALL=1; shift ;;
+    --compare)
+      case "${2:-}" in ""|-*) COMPARE="last"; shift ;; *) COMPARE="$2"; shift 2 ;; esac ;;
     --note)
       [ $# -ge 3 ] || die "--note needs a review and a line: --note last \"fixed 2, rejected 1 as a false positive\""
       NOTE=("$2" "$3"); shift 3 ;;
@@ -388,13 +398,18 @@ fi
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
 
-# --history and --note read and write .droid-reviews/ only; no droid needed.
+# --history, --note and --compare read and write .droid-reviews/ only; no droid needed.
 [ -z "$ALL" ] || [ -n "$HISTORY" ] || die "--all goes with --history"
 if [ -n "$HISTORY" ]; then
   exec python3 "$(dirname "$SELF")/reviews.py" history ${ALL:+--all}
 fi
 if [ ${#NOTE[@]} -gt 0 ]; then
   exec python3 "$(dirname "$SELF")/reviews.py" note "${NOTE[0]}" "${NOTE[1]}"
+fi
+if [ -n "$COMPARE" ]; then
+  # A review file named from where the command was typed.
+  [ ! -f "$ORIG_PWD/$COMPARE" ] || COMPARE="$ORIG_PWD/$COMPARE"
+  exec python3 "$(dirname "$SELF")/reviews.py" compare "$COMPARE"
 fi
 [ -n "$BASE" ] || BASE="$(default_base)"
 
@@ -464,15 +479,36 @@ sys.exit(0 if t.find(b"{id:\"%s\",name:" % sys.argv[1].encode()) >= 0 else 1)' "
     return 1
   fi
 }
-# A comma list of models as the first word is a fan-out, like --models.
-is_model_list() {
-  local m
-  case "$1" in *,*) ;; *) return 1 ;; esac
-  for m in ${1//,/ }; do is_model "$m" || return 1; done
+# Stop on names in a model list that are no model: every one of them, the
+# ids droid lists that each could have meant, and where to find the rest.
+no_such_models() {   # no_such_models <the list as typed> <name>...
+  local list="$1" m near; shift
+  # droid's own list, though it takes ten seconds: it has the newest models
+  # first and none it has retired, and this is the one place to be right.
+  known_model "$1" || true
+  for m in "$@"; do
+    near="$(printf '%s\n' "$CATALOG" | awk -v m="$m" 'index($1, m) && n < 4 { printf "%s%s", sep, $1; sep = ", "; n++ }')"
+    echo "no model '$m' in $list${near:+ (did you mean $near?)}" >&2
+  done
+  echo "shortcuts: $SHORTCUTS" >&2
+  die "every id droid takes: $(basename "$SELF") --efforts"
 }
+# A comma list of models as the first word is a fan-out, like --models. A
+# list where some names are models and some are not is a mistake in the
+# command, not an ask: say so rather than run it all as text on the default
+# model. With no model in it at all, it is just how the ask begins.
 WORD_EFFORT=""
-if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [ -n "$ASK" ] && is_model_list "${ASK%%[[:space:]]*}"; then
-  MODELS="${ASK%%[[:space:]]*}"; drop_word "$MODELS"
+first="${ASK%%[[:space:]]*}"
+if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [[ "$first" == *,* ]]; then
+  known=0; unknown=()
+  for m in ${first//,/ }; do
+    if is_model "$m"; then known=$((known + 1)); else unknown+=("$m"); fi
+  done
+  if [ "$known" -gt 0 ] && [ ${#unknown[@]} -gt 0 ]; then
+    no_such_models "$first" "${unknown[@]}"
+  elif [ "$known" -gt 0 ]; then
+    MODELS="$first"; drop_word "$MODELS"
+  fi
 fi
 if [ -n "$MODELS" ]; then
   [ -z "$NAMED_MODEL" ] || die "--model names one model; list them all in --models instead"
@@ -482,11 +518,12 @@ if [ -n "$MODELS" ]; then
   if [ -n "$word" ] && is_model "$word"; then
     die "'$word' is a model; name the models in --models only (effort: --effort)"
   fi
+  unknown=()
   for m in ${MODELS//,/ }; do
     ! shortcut "$m" >/dev/null || continue
-    known_model "$m" || [ -z "$CATALOG" ] || \
-      die "droid has no model '$m' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"
+    known_model "$m" || [ -z "$CATALOG" ] || unknown+=("$m")
   done
+  [ ${#unknown[@]} -eq 0 ] || no_such_models "$MODELS" "${unknown[@]}"
 elif [ -z "$MODEL" ] && [ -n "$ASK" ]; then
   word="${ASK%%[[:space:]]*}"
   if is_model "$word"; then
@@ -682,6 +719,32 @@ def worktree():
         c["unstaged"] += line[1] != " "
     return c
 
+def worktree_files():
+    """path -> content hash for each uncommitted file (None for a deleted
+    one): what --compare needs to tell later whether a file the reviewer saw
+    uncommitted is still as it was. None when there are too many to bother."""
+    out = {}
+    entries = (git("status", "--porcelain=v1", "--untracked-files=all", "-z", raw=True) or "").split("\0")
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        out[e[3:]] = None
+        if e[0] in "RC":
+            i += 1   # a rename's old name follows
+    if len(out) > 2000:
+        return None
+    paths = [f for f in out if os.path.isfile(f)]
+    if paths:
+        r = subprocess.run(("git", "hash-object", "--stdin-paths"), input="\n".join(paths) + "\n",
+                           capture_output=True, text=True)
+        hashes = r.stdout.split()
+        if r.returncode == 0 and len(hashes) == len(paths):
+            out.update(zip(paths, hashes))
+    return out
+
 def model_name(mid):
     """What droid's /model picker calls the model ("GPT-6.1 Sol"), for people to
     read: from the registry built into the droid binary, then the help's model
@@ -729,7 +792,7 @@ if mode == "start":
         "repo": env("ROOT"), "branch": git("branch", "--show-current") or None,
         "head": git("rev-parse", "HEAD"), "head_subject": git("log", "-1", "--format=%s"),
         "scope": env("SCOPE"), "scope_text": env("WHAT"), "base": None,
-        "uncommitted": worktree(),
+        "uncommitted": worktree(), "uncommitted_files": worktree_files(),
         "session": None, "turns": None,
         "files": {"review": None, "log": env("LOG"), "meta": meta},
     }
@@ -1115,6 +1178,7 @@ progress_filter() {
 import json, os, sys, time
 log, out, model, effort = sys.argv[1:5]
 t0, turn, last_msg, raw = time.time(), 0, None, []
+running = {}   # commands droid started and has not had back: call id -> (turn, when)
 done = err = None
 session = ""
 def note(text):
@@ -1128,9 +1192,15 @@ def target(p):
         if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
             v = " ".join(v)
         if isinstance(v, str) and v:
-            if key in ("file_path", "path") and v.startswith(os.getcwd() + "/"):
-                v = v[len(os.getcwd()) + 1:]
+            # A path inside the repo, whatever the tool calls it (file_path,
+            # directory_path, folder): relative, and the repo itself is ".".
+            if key not in keys[2:] and (v + "/").startswith(os.getcwd() + "/"):
+                v = v[len(os.getcwd()) + 1:] or "."
             v = " ".join(v.split())
+            if key == "command":   # "cd <the repo> && x" is x: it runs there anyway
+                for sep in (" && ", "; "):
+                    if v.startswith("cd %s%s" % (os.getcwd(), sep)):
+                        v = v[len("cd %s%s" % (os.getcwd(), sep)):]
             return v if len(v) <= 70 else v[:67] + "..."
     return ""
 for line in iter(sys.stdin.readline, ""):
@@ -1151,6 +1221,14 @@ for line in iter(sys.stdin.readline, ""):
         name = e.get("toolName") or e.get("toolId") or "tool"
         tgt = target(e.get("parameters") or {})
         note("turn %d · %s%s" % (turn, name, " " + tgt if tgt else ""))
+        if name == "Execute" and e.get("id"):
+            running[e["id"]] = (turn, time.time())
+    elif kind == "tool_result" and e.get("id") in running:
+        # A command came back: without this line the log cannot tell a check
+        # still going from droid thinking about its result.
+        at, began = running.pop(e["id"])
+        note("turn %d ↳ Execute %s in %ds%s" % (at, "failed" if e.get("isError") else "returned", time.time() - began,
+                                                 ", %d still running" % len(running) if running else ""))
     elif kind == "error":
         err = e.get("message") or json.dumps(e)
         note("error: " + " ".join(str(err).split())[:300])
