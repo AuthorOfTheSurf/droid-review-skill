@@ -420,7 +420,7 @@ command -v python3 >/dev/null || die "python3 not found (used to parse droid's J
 
 # The catalog is read only when a run has something to check against it: a
 # word that may be a model id, or an effort. A shortcut at droid's default
-# effort never does, so its files (and its status line row) are there at once.
+# effort never does, so its files (and its row in the band) are there at once.
 # A fan-out child is handed what its parent read rather than reading it again.
 CATALOG="${_DROID_REVIEW_CATALOG:-}"
 CATALOG_READ="${CATALOG:+1}"

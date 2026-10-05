@@ -14,7 +14,7 @@
 #   STUB_DROID_MODE=error        an error event; exit 1
 #   STUB_DROID_MODE=garbage      a line that is not JSON; exit 1
 # STUB_DROID_DELAY=<seconds> sleeps before each event (default 0), for a run
-# long enough to watch (the status line rows) or to interrupt.
+# long enough to watch (the rows in the band) or to interrupt.
 # STUB_DROID_TURNS=<n> makes the ok run take n turns (default 2).
 # STUB_DROID_FAST=<model id> ignores the delay for that model, so in a fan-out
 # it finishes while the others are still running.

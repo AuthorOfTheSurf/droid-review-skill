@@ -34,11 +34,11 @@ that was already there) and whether the line has changed since:
 
     changed since the review: 3 files
       README.md                              committed
-      skills/droid-review/statusline.py      committed, uncommitted
+      skills/droid-review/reviews.py         committed, uncommitted
       notes.txt                              uncommitted (untracked)
 
     cited in the review: 2
-      skills/droid-review/statusline.py:47   changed on this branch · changed since (committed)
+      skills/droid-review/reviews.py:47      changed on this branch · changed since (committed)
       skills/droid-review/runs.py:12         not changed on this branch · unchanged, now line 14
 
 "Since" is against the working tree, so staged, unstaged and untracked changes
