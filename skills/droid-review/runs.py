@@ -1,6 +1,5 @@
-"""What statusline.py and reviews.py both read from .droid-reviews/: where
-it is, whether a run's process is alive, the ends of its log, and the colours
-both print in. Neither script needs the other."""
+"""What reviews.py reads from .droid-reviews/: where it is, whether a run's
+process is alive, the ends of its log, and the colours it prints in."""
 
 import os
 
@@ -53,19 +52,6 @@ def log_ends(path):
     except OSError:
         return None, None
     return first, (tail[-1] if tail else None)
-
-
-def log_tail(path, size=8192):
-    """The last lines of a log (whole lines only), reading only its end."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            start = max(0, f.tell() - size)
-            f.seek(start)
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return []
-    return lines[1:] if start else lines   # from mid-file, the first is a fragment
 
 
 def clock(s):

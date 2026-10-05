@@ -252,25 +252,38 @@ check "history: none on another branch"    grep -q '^no reviews on this branch (
 check "history: all shows every branch"    sh -c "head -1 '$t/h4' | grep -q '· every branch ·' && grep -q '3 rounds' '$t/h4'"
 git checkout -q feat
 
-# 10. The status line, live: mid-run it shows the run and its turn; just after,
-# the result. (Its own states are unit-tested in statusline_test.py, run below.)
-sl() { echo "{\"workspace\":{\"current_dir\":\"$t/repo\"}}" | COLUMNS=200 python3 "$r/skills/droid-review/statusline.py" | sed 's/\x1b\[[0-9;]*m//g; s/\x1b\]8;;[^\x1b]*\x1b\\//g'; }
+# 10. What the band above the prompt (skills/droid-reviews) reads, live: mid-run
+# each model's .json says running and its .log has the turn, in the words
+# rows.ts looks for; just after, both say how it ended.
+# band_runs <status>: the runs whose .json has that status, without the extension
+band_runs() { grep -l "\"status\": \"$1\"" .droid-reviews/*.json 2>/dev/null | sed 's/\.json$//'; }
+# each <pattern> <extension> <runs>: every run's file of that kind has a line that matches
+each() { local f; [ -n "$3" ] || return 1; while read -r f; do grep -q "$1" "$f.$2" || return 1; done <<< "$3"; }
+going() { each '"pid": [0-9]' json "$1" && each '"started": "20' json "$1"; }
+ended() { each '"status": "ok"' json "$1" && each '"duration_s": [0-9]' json "$1" && each '"turns": [0-9]' json "$1"; }
 PATH="$t/bin:$PATH" STUB_DROID_DELAY=2 "$d" --base master --models glm,gemini > "$t/o10" 2>&1 &
 live=""
 for _ in $(seq 1 60); do
   sleep 0.5
-  live="$(sl)"
-  case "$live" in *"turn 1 · Read"*) break ;; esac
+  live="$(band_runs running)"
+  [ "$(grep -c . <<< "$live")" = 2 ] && each ' turn 1 · Read ' log "$live" && break
 done
-check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[⠹⢸⣰⣤⣆⡇⠏⠛] droid-review · ')" = 2 ]
-check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 'turn 1 · Read README.md'" _ "$live"
+check "band: a running .json per model"    [ "$(grep -c . <<< "$live")" = 2 ]
+check "band: each with its pid and start"  going "$live"
+check "band: each log shows the turn"      each '^\[[^]]*\] turn 1 · Read README.md$' log "$live"
 wait
-after="$(sl)"
-# (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid-review · Gemini 3.8 Flash .* \[ ✓ ' && printf '%s' \"\$1\" | grep -q '^✓ droid-review · GLM-5.3-Flash .* \[ ✓ '" _ "$after"
-check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[⠹⢸⣰⣤⣆⡇⠏⠛]'" _ "$after"
-check "status line: unit tests"            python3 "$here/statusline_test.py"
+check "band: then nothing still running"   [ -z "$(band_runs running)" ]
+check "band: both .json say how it went"   ended "$live"
+check "band: both logs end done"           each ' done · [0-9]* turns · [0-9]*s$' log "$live"
 check "history: unit tests"                python3 "$here/reviews_test.py"
+# The rows themselves are tested in Claude Code's own engine, so only where a
+# claude that loads mods is installed.
+if command -v claude >/dev/null && claude plugin test --help >/dev/null 2>&1; then
+  check "band: validates"                  claude plugin validate "$r/skills/droid-reviews"
+  check "band: tests"                      claude plugin test "$r/skills/droid-reviews"
+else
+  echo "skip  band: tests (this claude has no \`plugin test\`)"
+fi
 
 # 11. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]

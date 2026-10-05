@@ -34,18 +34,18 @@ from it. Having it in the transcript is the point.
 If droid itself is behind, everything below is too; say so, and let the user
 decide whether to update droid first.
 
-**Are Claude Code mods on for this account yet?** Running reviews show in
-the status line today (README: "Live status in Claude Code"); a mod could draw
-them natively (issue #4), but mods are rolling out remotely. Check
+**Are Claude Code mods on for this account?** Running reviews show in a band
+above the prompt (README: "Live status in Claude Code"), which a mod draws
+(`skills/droid-reviews`), and mods are rolling out remotely. Check
 from an empty directory, in one line of the report:
 
 ```bash
 (cd "$(mktemp -d)" && claude plugin test 2>&1 | tail -1)
 ```
 
-`no hooks module to load` means mods can load: tell the user the mod is
-unblocked. `turned off in this process` means not yet; `turned off here` means a
-setting blocks them.
+`no hooks module to load` means mods can load, and the band with them.
+`turned off in this process` means not yet; `turned off here` means a
+setting blocks them. Either way the reviews run as before, without the band.
 
 ## 2. Contracts — does the script still read droid?
 
@@ -205,12 +205,14 @@ the .json and the review file, that it leaves `--session last` alone, rounds,
 how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
 is a script bug, or a contract the check encodes that changed on purpose:
-then change the check in the same commit. It also checks the status line rows live during a slowed stub run, and runs
-`statusline_test.py` (the rows for every run state, the bar, and what droid
-is taken to be doing from its tool calls, against fixture folders)
-and `reviews_test.py` (threads, the branch filter, round lines, notes, and
-`--compare` in a throwaway repo).
-To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
+then change the check in the same commit. It also checks what the band reads (each run's `.json` and `.log`) live during a slowed stub run, and runs
+`reviews_test.py` (threads, the branch filter, round lines, notes, and
+`--compare` in a throwaway repo) and, where the installed `claude` has
+`plugin test`, the band's own tests under `skills/droid-reviews/tests/`
+(`rows.test.ts`: the rows for every run state, the bar, and what droid is
+taken to be doing from its tool calls; `band.test.tsx`: the band over a
+mocked `.droid-reviews/`). Without it that line reads `skip`: say so in the report.
+To look at the rows in a real session instead, `demo-band.sh` runs slowed
 stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
 on the scripts (shellcheck is clean: any warning is new). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
