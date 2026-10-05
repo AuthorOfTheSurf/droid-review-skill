@@ -8,9 +8,9 @@
 #   droid-review.sh --feedback "<ask>"    # not /review: ask droid for anything, in its own words
 #   droid-review.sh --base origin/main
 #   droid-review.sh --uncommitted         # only the working tree
-#   droid-review.sh luna                  # a shortcut: gpt-6-luna at reasoning max
+#   droid-review.sh luna                  # a shortcut: gpt-6-luna at droid's default effort
 #   droid-review.sh "gemini the auth changes"   # shortcut, then the emphasis
-#   droid-review.sh "luna xhigh"          # shortcut with its effort overridden
+#   droid-review.sh "luna max"            # shortcut at an effort you name (higher is opt-in)
 #   droid-review.sh --model glm-5.2 --effort max
 #   droid-review.sh --models              # list the shortcuts and exit
 #   droid-review.sh --efforts [model]     # every model's effort levels and default, or one's
@@ -20,6 +20,9 @@
 #   droid-review.sh --checks docs/testing.md   # inline a file listing how to verify this repo
 #   droid-review.sh --session <id> "re-check the fixes in HEAD"
 #   droid-review.sh --session last        # the newest review's session, by file
+#   droid-review.sh --history [--all]     # this branch's reviews (--all: every branch), rounds and notes
+#   droid-review.sh --note <review|session|last> "<what you did about it>"
+#   droid-review.sh --compare [review|session|last]   # a review against the repo now
 #
 # A continuation runs on the model and effort that wrote the review, read from
 # the review file's header, so the reviewer that raised a finding is the one
@@ -30,19 +33,38 @@
 # instruction with --session. Its first word picks the model when it is exactly
 # a shortcut (--models) or a droid model id, and the word after that sets the
 # reasoning effort when it is exactly an effort level. --model wins over both.
-# Without a model the default is glm. Efforts are checked against the levels
-# each model supports before droid runs; --efforts lists them.
+# Without a model the default is glm. A shortcut at droid's default effort
+# starts at once, with nothing asked of droid first. An effort you name is
+# checked against the levels the model supports, and a model id that is not a
+# shortcut against the ids this droid install knows, before droid runs;
+# --efforts lists both.
 #
-# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT
-# (the effort applies only when the model has no pinned level).
+# Env overrides: DROID_REVIEW_BASE, DROID_REVIEW_MODEL, DROID_REVIEW_EFFORT.
 #
 # Needs: droid (https://docs.factory.ai/droid-cli/quickstart), git, python3.
 #
 # Prints two lines on stdout: the review file path and the droid session id.
 # Exit 0 when droid finished; non-zero when it did not (auth, model, timeout).
-# The review lands in .droid-reviews/ (gitignore that) as markdown, next to a
-# .log of the same name that droid's progress streams into while it runs
-# (one line per tool call: elapsed, turn, tool and target) — tail it to watch.
+# The review lands in .droid-reviews/ (which ignores itself in git) as markdown,
+# next to a .log of the same name that droid's progress streams into while it
+# runs (one line per tool call: elapsed, turn, tool and target) — tail it to
+# watch — and a .json of the run: status (running/ok/failed/interrupted), start
+# and finish, the commit, branch and base it reviewed, and the uncommitted
+# changes it saw. Compare those with the repo now to tell how fresh it is; the
+# review file's header says the same in words.
+#
+# --history lists the reviews on this branch, newest first, each with its
+# re-checks: when each round ran, how it ended, the commit it reviewed and how
+# far HEAD has moved since. --note records one line on a finished review (the
+# file, a session id for its newest round, or last): what the agent that
+# triaged it did about it. It goes in the .json and under "## Response" in the
+# review file, and --history shows it under its round.
+#
+# --compare (default: last) sets a finished review against the repo as it is
+# now, with no model run: the files changed since, committed or not (staged,
+# unstaged and untracked all count), and for each file:line the review cites,
+# whether this branch changed that line (if not, the finding is about code
+# that was already there) and whether it has changed since the review.
 #
 # Fan-out: --models a,b,c (or a comma list as the ask's first word) runs one
 # child of this script per model, in parallel, each with that model's shortcut
@@ -59,7 +81,8 @@
 # droid runs here at `--auto medium`, so inside your repo it can build, run
 # tests, install packages, make network requests and commit locally. That is
 # the point — a finding backed by a command it ran beats one read off the diff.
-# ApplyPatch is removed so it cannot edit your files.
+# Its file-editing tools (ApplyPatch, Edit, Create) are removed so it cannot
+# edit your files.
 #
 # No config files. How to test and verify the repo is read from its instructions
 # file (AGENTS.md / CLAUDE.md), which droid loads by itself; --checks <path>
@@ -79,16 +102,17 @@ ORIG_PWD="$PWD"
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"   # fan-out children re-run it
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 
-# Shortcuts: name → "model [effort]". A pinned effort is the level that model
-# should review at; without one, droid's per-model default applies. The family
+# Shortcuts: name → model. None pins an effort: each runs at droid's per-model
+# default (--efforts shows it), and a higher one is opt-in, named on the run
+# ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
 # model in the family as of droid 0.232.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
-    glm)    echo "glm-5.3-flash high" ;;
-    gemini) echo "gemini-3.8-flash high" ;;
-    luna)   echo "gpt-6-luna max" ;;
+    glm)    echo "glm-5.3-flash" ;;
+    gemini) echo "gemini-3.8-flash" ;;
+    luna)   echo "gpt-6-luna" ;;
     auto)   echo "auto" ;;
     fable)  echo "claude-fable-5.1" ;;
     opus)   echo "claude-opus-5-5" ;;
@@ -115,9 +139,18 @@ is_effort() {
 # binary — the same table its /model picker reads, which agrees with the help
 # wherever both list a model. Empty if every format changed, in which case
 # nothing is validated and droid gets the last word.
+#
+# Asking droid which ids it accepts takes ten seconds or more (it goes to the
+# network), so only the listings (--efforts, --whats-new) do. `catalog local`
+# is what a run uses, and only when it has something to check: the ids in the
+# help plus the registry's, in about a second. That covers every id droid
+# accepts; the registry also keeps ids droid has retired, and those droid
+# turns down itself.
 catalog() {
-  HELP="$(droid exec --help 2>/dev/null || true)" \
-  ACCEPTED="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)" \
+  local accepted=""
+  [ "${1:-}" = "local" ] || \
+    accepted="$(droid exec -m droid-review-no-such-model --list-tools 2>&1 >/dev/null || true)"
+  HELP="$(droid exec --help 2>/dev/null || true)" ACCEPTED="$accepted" LOCAL="${1:-}" \
   python3 -c '
 import mmap, os, re, shutil
 section, ids, details = None, [], {}
@@ -161,7 +194,10 @@ for line in os.environ["ACCEPTED"].splitlines():
             if model_id and model_id not in accepted:
                 accepted.append(model_id)
         listing = False
-for model_id in accepted or [model_id for model_id, _ in ids]:
+known = [model_id for model_id, _ in ids]
+if os.environ["LOCAL"]:
+    known += [model_id for model_id in built if model_id not in known]
+for model_id in accepted or known:
     print(model_id, *efforts.get(model_id) or built.get(model_id) or ("?", "-"))
 '
 }
@@ -193,6 +229,10 @@ SESSION=""
 MODELS=""        # comma list: fan out, one child run per model
 EFFORTS=""       # --efforts: list levels instead of running ("all" or a model)
 WHATS_NEW=""     # --whats-new: new, discounted and deprecated models, then exit
+ALL=""           # --all: --history on every branch
+HISTORY=""       # --history: list this repo's reviews, then exit (--all: every branch)
+NOTE=()          # --note <review> <text>: record what was done about a review
+COMPARE=""       # --compare [review]: a review against the repo now, then exit
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -210,14 +250,18 @@ while [ $# -gt 0 ]; do
         ""|-*|*[[:space:]]*) ;;
         *) MODELS="$2"; shift 2; continue ;;
       esac
-      for s in $SHORTCUTS; do
-        set -- $(shortcut "$s")
-        printf '%-9s %-18s %s\n' "$s" "$1" "${2:-droid default}"
-      done
+      for s in $SHORTCUTS; do printf '%-9s %s\n' "$s" "$(shortcut "$s")"; done
       exit 0 ;;
     --efforts)
       case "${2:-}" in ""|-*) EFFORTS="all"; shift ;; *) EFFORTS="$2"; shift 2 ;; esac ;;
     --whats-new) WHATS_NEW=1; shift ;;
+    --history) HISTORY="history"; shift ;;
+    --all)     ALL=1; shift ;;
+    --compare)
+      case "${2:-}" in ""|-*) COMPARE="last"; shift ;; *) COMPARE="$2"; shift 2 ;; esac ;;
+    --note)
+      [ $# -ge 3 ] || die "--note needs a review and a line: --note last \"fixed 2, rejected 1 as a false positive\""
+      NOTE=("$2" "$3"); shift 3 ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1 (--help for usage)" ;;
     *) ASK="${ASK:+$ASK }$1"; shift ;;
@@ -235,7 +279,7 @@ if [ -n "$EFFORTS" ] || [ -n "$WHATS_NEW" ]; then
   CAT="$(catalog || true)"
   [ -n "$CAT" ] || die "could not read droid's model list"
   SC="$(for s in $SHORTCUTS; do echo "$s $(shortcut "$s")"; done)"
-  want="$EFFORTS"; spec="$(shortcut "$want" || true)"; [ -z "$spec" ] || want="${spec%% *}"
+  want="$(shortcut "$EFFORTS" || echo "$EFFORTS")"
   CAT="$CAT" SC="$SC" DROID_VERSION="$(droid --version 2>/dev/null || true)" python3 -c '
 import datetime as dt, mmap, os, re, shutil, sys
 mode, want = sys.argv[1:3]
@@ -244,8 +288,8 @@ day = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 cat = [l.split() for l in os.environ["CAT"].splitlines() if l.strip()]
 names = {}
 for l in os.environ["SC"].splitlines():
-    s, mid, *pin = l.split()
-    names.setdefault(mid, []).append(s + (" " + pin[0] if pin else ""))
+    s, mid = l.split()
+    names.setdefault(mid, []).append(s)
 info, family = {}, {}
 try:
     with open(os.path.realpath(shutil.which("droid")), "rb") as f:
@@ -353,32 +397,118 @@ fi
 
 [ -n "$ROOT" ] || die "not a git repository: $ORIG_PWD"
 cd "$ROOT"
+
+# --history, --note and --compare read and write .droid-reviews/ only; no droid needed.
+[ -z "$ALL" ] || [ -n "$HISTORY" ] || die "--all goes with --history"
+if [ -n "$HISTORY" ]; then
+  exec python3 "$(dirname "$SELF")/reviews.py" history ${ALL:+--all}
+fi
+if [ ${#NOTE[@]} -gt 0 ]; then
+  exec python3 "$(dirname "$SELF")/reviews.py" note "${NOTE[0]}" "${NOTE[1]}"
+fi
+if [ -n "$COMPARE" ]; then
+  # A review file named from where the command was typed.
+  [ ! -f "$ORIG_PWD/$COMPARE" ] || COMPARE="$ORIG_PWD/$COMPARE"
+  exec python3 "$(dirname "$SELF")/reviews.py" compare "$COMPARE"
+fi
 [ -n "$BASE" ] || BASE="$(default_base)"
 
 command -v droid >/dev/null || \
   die "droid CLI not installed: https://docs.factory.ai/droid-cli/quickstart"
 command -v python3 >/dev/null || die "python3 not found (used to parse droid's JSON)"
 
-# A fan-out child is handed the parent's catalog rather than asking droid again.
+# The catalog is read only when a run has something to check against it: a
+# word that may be a model id, or an effort. A shortcut at droid's default
+# effort never does, so its files (and its status line row) are there at once.
+# A fan-out child is handed what its parent read rather than reading it again.
 CATALOG="${_DROID_REVIEW_CATALOG:-}"
-[ -n "$CATALOG" ] || CATALOG="$(catalog || true)"
-[ -n "$CATALOG" ] || echo "could not read droid's model list; skipping model checks" >&2
+CATALOG_READ="${CATALOG:+1}"
+load_catalog() {   # not in a subshell: it sets CATALOG
+  [ -z "$CATALOG_READ" ] || return 0
+  CATALOG_READ=1
+  CATALOG="$(catalog local || true)"
+  [ -n "$CATALOG" ] || echo "could not read droid's model list; skipping model checks" >&2
+}
 catalog_entry() { printf '%s\n' "$CATALOG" | awk -v m="$1" '$1 == m { print $2; exit }'; }
+# Is $1 an id droid takes? What this install lists, and only for an id it does
+# not list, droid's own answer (slow, once): the registry may stop being
+# readable, and "no such model" should be droid's word, not a guess.
+CATALOG_FULL=""
+known_model() {
+  local full
+  load_catalog
+  [ -z "$(catalog_entry "$1")" ] || return 0
+  [ -z "$CATALOG_FULL" ] || return 1
+  CATALOG_FULL=1
+  full="$(catalog || true)"
+  [ -z "$full" ] || CATALOG="$full"
+  [ -n "$(catalog_entry "$1")" ]
+}
+# An id a shortcut points at is known without asking.
+is_shortcut_target() {
+  local s
+  for s in $SHORTCUTS; do [ "$(shortcut "$s")" != "$1" ] || return 0; done
+  return 1
+}
 
 # The ask's first word picks the model when it is exactly a shortcut or a model
 # id, and the next word the effort when it is exactly an effort level. The rest
 # of the ask is left as typed, newlines included.
 drop_word() { ASK="${ASK#"$1"}"; ASK="${ASK#"${ASK%%[![:space:]]*}"}"; }
-is_model() { shortcut "$1" >/dev/null || [ -n "$(catalog_entry "$1")" ]; }
-# A comma list of models as the first word is a fan-out, like --models.
-is_model_list() {
-  local m
-  case "$1" in *,*) ;; *) return 1 ;; esac
-  for m in ${1//,/ }; do is_model "$m" || return 1; done
+# Is a word of the ask a model? A shortcut is. So is an id this install lists,
+# but an ask mostly starts with ordinary words, and those must cost nothing:
+# only a word shaped like an id (a digit in it: gpt-6.1-sol, custom:x-0) is
+# looked up, and put to droid if the install does not list it. The few ids
+# without a digit (inkling) are found by a plain search of the droid binary's
+# registry: a fifth of a second for a word that is not there, so that an id
+# is never taken for a word and run on the default model. (mmap's find, not
+# grep: the system grep takes two seconds over the binary.)
+is_model() {
+  ! shortcut "$1" >/dev/null || return 0
+  if [[ "$1" =~ ^[a-z][a-z0-9.:-]*[0-9][a-z0-9.:-]*$ ]]; then
+    load_catalog
+    [ -z "$(catalog_entry "$1")" ] || return 0
+    known_model "$1"
+  elif [[ "$1" =~ ^[a-z][a-z-]*$ ]]; then
+    python3 -c '
+import mmap, os, shutil, sys
+with open(os.path.realpath(shutil.which("droid")), "rb") as f:
+    t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+sys.exit(0 if t.find(b"{id:\"%s\",name:" % sys.argv[1].encode()) >= 0 else 1)' "$1" 2>/dev/null
+  else
+    return 1
+  fi
 }
+# Stop on names in a model list that are no model: every one of them, the
+# ids droid lists that each could have meant, and where to find the rest.
+no_such_models() {   # no_such_models <the list as typed> <name>...
+  local list="$1" m near; shift
+  # droid's own list, though it takes ten seconds: it has the newest models
+  # first and none it has retired, and this is the one place to be right.
+  known_model "$1" || true
+  for m in "$@"; do
+    near="$(printf '%s\n' "$CATALOG" | awk -v m="$m" 'index($1, m) && n < 4 { printf "%s%s", sep, $1; sep = ", "; n++ }')"
+    echo "no model '$m' in $list${near:+ (did you mean $near?)}" >&2
+  done
+  echo "shortcuts: $SHORTCUTS" >&2
+  die "every id droid takes: $(basename "$SELF") --efforts"
+}
+# A comma list of models as the first word is a fan-out, like --models. A
+# list where some names are models and some are not is a mistake in the
+# command, not an ask: say so rather than run it all as text on the default
+# model. With no model in it at all, it is just how the ask begins.
 WORD_EFFORT=""
-if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [ -n "$ASK" ] && is_model_list "${ASK%%[[:space:]]*}"; then
-  MODELS="${ASK%%[[:space:]]*}"; drop_word "$MODELS"
+first="${ASK%%[[:space:]]*}"
+if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [[ "$first" == *,* ]]; then
+  known=0; unknown=()
+  for m in ${first//,/ }; do
+    if is_model "$m"; then known=$((known + 1)); else unknown+=("$m"); fi
+  done
+  if [ "$known" -gt 0 ] && [ ${#unknown[@]} -gt 0 ]; then
+    no_such_models "$first" "${unknown[@]}"
+  elif [ "$known" -gt 0 ]; then
+    MODELS="$first"; drop_word "$MODELS"
+  fi
 fi
 if [ -n "$MODELS" ]; then
   [ -z "$NAMED_MODEL" ] || die "--model names one model; list them all in --models instead"
@@ -388,10 +518,12 @@ if [ -n "$MODELS" ]; then
   if [ -n "$word" ] && is_model "$word"; then
     die "'$word' is a model; name the models in --models only (effort: --effort)"
   fi
+  unknown=()
   for m in ${MODELS//,/ }; do
-    shortcut "$m" >/dev/null || [ -z "$CATALOG" ] || [ -n "$(catalog_entry "$m")" ] || \
-      die "droid has no model '$m' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"
+    ! shortcut "$m" >/dev/null || continue
+    known_model "$m" || [ -z "$CATALOG" ] || unknown+=("$m")
   done
+  [ ${#unknown[@]} -eq 0 ] || no_such_models "$MODELS" "${unknown[@]}"
 elif [ -z "$MODEL" ] && [ -n "$ASK" ]; then
   word="${ASK%%[[:space:]]*}"
   if is_model "$word"; then
@@ -406,15 +538,24 @@ fi
 # newest file; an id is looked up across the files. A model the caller named
 # wins; a session no file records runs on the default and says so.
 SESSION_EFFORT=""
+# The review files, last written first. Their names are this script's own
+# (a stamp, the branch, the model), so listing them with ls is safe.
+# shellcheck disable=SC2012
+newest_first() { ls -t .droid-reviews/*.md 2>/dev/null || true; }
 if [ -n "$SESSION" ]; then
   if [ "$SESSION" = "last" ]; then
     # Skip fan-out indexes: they table several sessions and record none.
-    SESSION_FILE="$(ls -t .droid-reviews/*.md 2>/dev/null | grep -v -- '-multi\.md$' | head -1 || true)"  # pipefail
+    SESSION_FILE="$(newest_first | while IFS= read -r f; do
+      if [[ "$f" != *-multi.md ]]; then printf '%s\n' "$f"; break; fi
+    done)"
     [ -n "$SESSION_FILE" ] || die "no review under .droid-reviews/ to continue"
     SESSION="$(sed -n 's/^- session: //p' "$SESSION_FILE" | head -1)"
     [ -n "$SESSION" ] || die "$SESSION_FILE has no session id"
   else
-    SESSION_FILE="$(grep -lx -- "- session: $SESSION" $(ls -t .droid-reviews/*.md 2>/dev/null) 2>/dev/null | head -1 || true)"
+    # One file at a time: handed no files at all, grep would wait on stdin.
+    SESSION_FILE="$(newest_first | while IFS= read -r f; do
+      if grep -qx -- "- session: $SESSION" "$f" 2>/dev/null; then printf '%s\n' "$f"; break; fi
+    done)"
   fi
   if [ -n "$SESSION_FILE" ]; then
     echo "continuing $SESSION_FILE ($SESSION)" >&2
@@ -431,17 +572,18 @@ if [ -n "$SESSION" ]; then
 fi
 
 # Effort, most specific first: --effort, the word after the model, the session's
-# level, the shortcut's pinned level, DROID_REVIEW_EFFORT, then droid's per-model
-# default.
+# level, DROID_REVIEW_EFFORT, then droid's per-model default.
 # A fan-out leaves all of this to its children, one model each.
-PINNED=""
-if [ -z "$MODELS" ] && spec="$(shortcut "${MODEL:-glm}")"; then
-  MODEL="${spec%% *}"
-  [ "$spec" = "$MODEL" ] || PINNED="${spec#* }"
+if [ -z "$MODELS" ]; then
+  MODEL="$(shortcut "${MODEL:-glm}" || echo "$MODEL")"
+  EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${DROID_REVIEW_EFFORT:-}}}}"
 fi
-[ -n "$MODELS" ] || EFFORT="${EFFORT:-${WORD_EFFORT:-${SESSION_EFFORT:-${PINNED:-${DROID_REVIEW_EFFORT:-}}}}}"
 
-if [ -n "$CATALOG" ] && [ -z "$MODELS" ]; then
+CHECK=""
+if [ -z "$MODELS" ] && { [ -n "$EFFORT" ] || ! is_shortcut_target "$MODEL"; }; then
+  CHECK=1; known_model "$MODEL" || true
+fi
+if [ -n "$CHECK" ] && [ -n "$CATALOG" ]; then
   supported="$(catalog_entry "$MODEL")"
   [ -n "$supported" ] || \
     die "droid has no model '$MODEL' (shortcuts: $SHORTCUTS; every id: droid exec -m x --list-tools)"
@@ -471,6 +613,8 @@ fi
 
 OUT_DIR=".droid-reviews"
 mkdir -p "$OUT_DIR"
+# The folder ignores itself, so no repo needs a .gitignore line for it.
+[ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
 STAMP="${_DROID_REVIEW_STAMP:-$(date +%Y%m%d-%H%M%S)}"   # a fan-out shares one stamp
 BRANCH="$(git branch --show-current | tr '/' '-')"
 # The model is in the name so parallel runs on different models are told apart at a
@@ -508,6 +652,255 @@ claim_log() {
     n=$((n + 1))
   done
   OUT="$OUT_BASE.md"
+}
+
+# Run metadata: <base>.json beside the review and its log. It holds what an
+# agent (or the droid-review-ui mod) needs to tell how fresh a review is — the
+# commit, branch and base it ran against, the uncommitted changes it saw, when
+# it started and finished — and whether it is still going (status, pid).
+#   run_meta start  <json>          before droid runs: status "running"
+#   run_meta finish <json> <result> after: status ok/failed, writes the review
+#                                   file from it and prints its path + session
+#   run_meta status <json> <status> just the status (interrupted)
+# Each write replaces the file atomically. An "interrupted" status is kept by a
+# later finish: the parent of a fan-out sets it while the child may still be
+# writing its own end.
+run_meta() {
+  ROOT="$ROOT" MODE="$MODE" SCOPE="$SCOPE" BASE="$BASE" WHAT="$WHAT" \
+  MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
+  SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
+  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" \
+  python3 - "$@" <<'PY'
+import datetime, json, os, re, subprocess, sys
+mode, meta = sys.argv[1], sys.argv[2]
+env = lambda k: os.environ.get(k) or None
+
+def now():
+    return datetime.datetime.now().astimezone()
+
+def git(*args, raw=False):
+    r = subprocess.run(("git",) + args, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout if raw else r.stdout.strip()
+
+def load():
+    try:
+        with open(meta) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+def save(m):
+    tmp = "%s.%d.tmp" % (meta, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(m, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, meta)
+
+def ended(m, status):
+    t = now()
+    m["finished"] = t.isoformat(timespec="seconds")
+    if m.get("started"):
+        m["duration_s"] = int((t - datetime.datetime.fromisoformat(m["started"])).total_seconds())
+    head = git("rev-parse", "HEAD")
+    if head and head != m.get("head"):
+        m["head_at_finish"] = head
+    if m.get("status") != "interrupted":
+        m["status"] = status
+
+def worktree():
+    c = {"staged": 0, "unstaged": 0, "untracked": 0}
+    for line in (git("status", "--porcelain=v1", "--untracked-files=all", raw=True) or "").splitlines():
+        if line.startswith("??"):
+            c["untracked"] += 1
+            continue
+        c["staged"] += line[0] != " "
+        c["unstaged"] += line[1] != " "
+    return c
+
+def worktree_files():
+    """path -> content hash for each uncommitted file (None for a deleted
+    one): what --compare needs to tell later whether a file the reviewer saw
+    uncommitted is still as it was. None when there are too many to bother."""
+    out = {}
+    entries = (git("status", "--porcelain=v1", "--untracked-files=all", "-z", raw=True) or "").split("\0")
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        out[e[3:]] = None
+        if e[0] in "RC":
+            i += 1   # a rename's old name follows
+    if len(out) > 2000:
+        return None
+    paths = [f for f in out if os.path.isfile(f)]
+    if paths:
+        r = subprocess.run(("git", "hash-object", "--stdin-paths"), input="\n".join(paths) + "\n",
+                           capture_output=True, text=True)
+        hashes = r.stdout.split()
+        if r.returncode == 0 and len(hashes) == len(paths):
+            out.update(zip(paths, hashes))
+    return out
+
+def model_name(mid):
+    """What droid's /model picker calls the model ("GPT-6.1 Sol"), for people to
+    read: from the registry built into the droid binary, then the help's model
+    list (it lags, but has "auto"). None when neither has it."""
+    if not mid:
+        return None
+    import mmap, shutil
+    try:
+        with open(os.path.realpath(shutil.which("droid") or ""), "rb") as f:
+            t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        hit = re.search(rb'\{id:"%s",name:"([^"]+)"' % re.escape(mid.encode()), t)
+        if not hit:   # the id may be a constant: o.GPT_6_SOL="gpt-6-sol", then {id:Mn.GPT_6_SOL,name:...}
+            const = re.search(rb'\.([A-Z0-9_]+)="%s"' % re.escape(mid.encode()), t)
+            if const:
+                hit = re.search(rb'\{id:[\w$]+\.%s,name:"([^"]+)"' % const.group(1), t)
+        if hit:
+            return hit.group(1).decode()
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        out = subprocess.run(("droid", "exec", "--help"), capture_output=True, text=True, timeout=10).stdout
+        hit = re.search(r"^\s+%s\s{2,}(.+?)(?: \(default\))?$" % re.escape(mid), out, re.M)
+        return hit.group(1).strip() if hit else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+def shortstat(*args):
+    s = git("diff", "--shortstat", *args) or ""
+    out = {}
+    for key, word in (("files", "file"), ("insertions", "insertion"), ("deletions", "deletion")):
+        m = re.search(r"(\d+) %s" % word, s)
+        out[key] = int(m.group(1)) if m else 0
+    return out
+
+if mode == "start":
+    m = {
+        "kind": env("MODE"), "status": "running",
+        "started": now().isoformat(timespec="seconds"), "finished": None,
+        "pid": int(os.environ["PID"]),
+        "model": env("MODEL"), "effort": env("EFFORT"),
+        "droid_version": None,
+        "asked": env("ASK"), "checks": env("CHECKS"),
+        "continues": {"session": env("SESSION"), "review": env("SESSION_FILE")} if env("SESSION") else None,
+        "round": 1,
+        "repo": env("ROOT"), "branch": git("branch", "--show-current") or None,
+        "head": git("rev-parse", "HEAD"), "head_subject": git("log", "-1", "--format=%s"),
+        "scope": env("SCOPE"), "scope_text": env("WHAT"), "base": None,
+        "uncommitted": worktree(), "uncommitted_files": worktree_files(),
+        "session": None, "turns": None,
+        "files": {"review": None, "log": env("LOG"), "meta": meta},
+    }
+    # A continuation is the next round of the review it continues: 2 for the
+    # first re-check, and so on (a review from before rounds counts as 1).
+    if env("SESSION"):
+        prev = {}
+        if env("SESSION_FILE"):
+            try:
+                with open(env("SESSION_FILE")[:-3] + ".json") as f:
+                    prev = json.load(f)
+            except (OSError, ValueError):
+                pass
+        m["round"] = (prev.get("round") or 1) + 1
+    m["model_name"] = model_name(m["model"])
+    try:
+        r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            m["droid_version"] = r.stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if m["scope"] == "branch":
+        base = env("BASE")
+        mb = git("merge-base", base, "HEAD")
+        m["base"] = {
+            "ref": base, "sha": git("rev-parse", base), "merge_base": mb,
+            "ahead": int(git("rev-list", "--count", base + "..HEAD") or 0),
+            "behind": int(git("rev-list", "--count", "HEAD.." + base) or 0),
+        }
+        m["diff"] = shortstat(mb) if mb else None   # merge-base to the working tree
+    else:
+        m["diff"] = shortstat("HEAD")
+    save(m)
+
+elif mode == "status":
+    m = load()
+    # Only a run still going takes a new status: a Ctrl-C that lands after
+    # the review was written must not turn its "ok" into "interrupted".
+    if m.get("status", "running") != "running":
+        sys.exit(0)
+    m["status"] = sys.argv[3]
+    ended(m, sys.argv[3])
+    save(m)
+
+elif mode == "finish":
+    m, out = load(), env("OUT")
+    text = open(sys.argv[3]).read().strip()
+    try:
+        d = json.loads(text.splitlines()[-1])
+    except Exception:
+        d = {"is_error": True, "result": "droid did not return JSON:\n" + text[-2000:]}
+    m["session"] = d.get("session_id") or m.get("session")
+    if d.get("is_error"):
+        ended(m, "failed")
+        m["error"] = str(d.get("result"))[:2000]
+        save(m)
+        prefix = "" if m["error"].startswith("droid did not") else "droid reported an error: "
+        sys.stderr.write(prefix + m["error"] + "\n")
+        sys.exit(1)
+    rc = int(env("DROID_EXIT") or 0)
+    ended(m, "ok" if rc == 0 else "failed")
+    if rc != 0:
+        m["error"] = "droid exited %d after reporting completion" % rc
+    m["turns"] = d.get("num_turns")
+    m["droid_duration_s"] = (d.get("duration_ms") or 0) // 1000
+    m["files"]["review"] = out
+    short = lambda sha: (sha or "?")[:7]
+    lines = ["- round: %s" % m.get("round", 1),
+             "- started: %s" % m.get("started"),
+             "- finished: %s (%ss)" % (m["finished"], m.get("duration_s", "?")),
+             "- model: %s (reasoning %s)" % (m.get("model"), m.get("effort") or "droid default"),
+             "- scope: %s" % m.get("scope_text")]
+    where = "%s at %s" % (m.get("branch") or "detached HEAD", short(m.get("head")))
+    if m.get("head_subject"):
+        where += ' "%s"' % m["head_subject"]
+    lines.append("- branch: %s (%s)" % (where, os.path.basename(m.get("repo") or "")))
+    b = m.get("base")
+    if b:
+        lines.append("- base: %s at %s; merge-base %s; %d ahead, %d behind"
+                     % (b["ref"], short(b["sha"]), short(b["merge_base"]), b["ahead"], b["behind"]))
+    u = m.get("uncommitted") or {}
+    lines.append("- uncommitted at start: %d staged, %d unstaged, %d untracked files"
+                 % (u.get("staged", 0), u.get("unstaged", 0), u.get("untracked", 0)))
+    df = m.get("diff")
+    if df:
+        lines.append("- diff reviewed: %d files, +%d -%d (tracked files; untracked not counted)"
+                     % (df["files"], df["insertions"], df["deletions"]))
+    if m.get("head_at_finish"):
+        lines.append("- HEAD moved while it ran: %s -> %s" % (short(m.get("head")), short(m["head_at_finish"])))
+    if m.get("asked"):
+        lines.append("- asked: %s" % m["asked"])
+    c = m.get("continues")
+    if c:
+        lines.append("- continues: %s" % (c.get("review") or c.get("session")))
+    lines.append("- droid: %s" % (m.get("droid_version") or "?"))
+    lines.append("- metadata: %s" % meta)
+    lines.append("- session: %s" % m["session"])
+    lines.append("- turns: %s, %ss" % (m["turns"], m["droid_duration_s"]))   # last: words() reads after it
+    with open(out, "w") as f:
+        title = "feedback" if m.get("kind") == "feedback" else "review"
+        if (m.get("round") or 1) > 1:
+            title += ", round %d" % m["round"]
+        f.write("# droid %s\n\n" % title)
+        f.write("\n".join(lines) + "\n\n" + (d.get("result") or "").strip() + "\n")
+    save(m)
+    print(out)
+    print(m["session"] or "")
+PY
 }
 
 # ---- Fan-out -----------------------------------------------------------------
@@ -570,7 +963,8 @@ fan_out() {
 
   interrupted=""        # global, set from the trap
   trap 'interrupted=1' INT TERM
-  local t0=$SECONDS drawn=""
+  local t0=$SECONDS t0_iso drawn=""
+  t0_iso="$(date +%Y-%m-%dT%H:%M:%S%z)"
   say() { [ -n "$board" ] || printf '%-9s %s\n' "${NAMES[$1]}" "$2" >&2; }
   while :; do
     now=$((SECONDS - t0))
@@ -630,12 +1024,17 @@ fan_out() {
         disown "${PIDS[i]}" 2>/dev/null || true   # no "Terminated" job notice
         kill_tree "${PIDS[i]}"
         STATE[i]="interrupted"; INFO[i]="interrupted"; DUR[i]=$now
-        [ -z "${LOGS[i]}" ] || echo "[$(elapsed "$now")] interrupted" >> "${LOGS[i]}"
+        if [ -n "${LOGS[i]}" ]; then
+          echo "[$(elapsed "$now")] interrupted" >> "${LOGS[i]}"
+          run_meta status "${LOGS[i]%.log}.json" interrupted || true
+        fi
         say "$i" "interrupted  $(elapsed "$now")"
       done
       break
     fi
-    sleep 1
+    # A TERM to the whole process group kills this sleep too; under set -e
+    # that would end the parent before the trap above got to tidy up.
+    sleep 1 || true
   done
   trap - INT TERM
 
@@ -647,8 +1046,10 @@ fan_out() {
   {
     echo "# droid $([ "$MODE" = feedback ] && echo feedback || echo review), ${n} models"
     echo
-    echo "- when: $(date +%Y-%m-%dT%H:%M:%S)"
+    echo "- started: $t0_iso"
+    echo "- finished: $(date +%Y-%m-%dT%H:%M:%S%z)"
     echo "- scope: $WHAT"
+    echo "- branch: ${BRANCH:-detached HEAD} at $(git rev-parse --short HEAD)"
     [ -z "$ASK" ] || echo "- asked: $ASK"
     [ -z "$EFFORT" ] || echo "- effort: $EFFORT"
     echo
@@ -747,17 +1148,21 @@ JSON="$(mktemp)"
 trap 'rm -f "$JSON"' EXIT
 
 # `--auto medium` lets the reviewer build and run the test suites, which is the
-# whole point; `--remove-tools ApplyPatch` drops the only file-editing tool, so
-# it stays a reviewer and not an author. Check the pairing against your droid
-# version with `droid exec --auto medium --remove-tools ApplyPatch --list-tools`
-# — droid ignores unknown flags silently, so a rename here fails open.
+# whole point; `--remove-tools` drops the file-editing tools, so it stays a
+# reviewer and not an author. Which ones a run has depends on the model: GPT
+# models edit with ApplyPatch, the rest (GLM, Gemini, Claude) with Edit and
+# Create, so all three go. Check against your droid version, on a model of
+# each kind, with
+#   droid exec -m <model> --auto medium --remove-tools ApplyPatch,Edit,Create --list-tools
+# — nothing under "Edit" may say allowed. droid ignores unknown flags and
+# tool names silently, so a rename here fails open.
 #
 # `-o stream-json` emits one event per line as droid works (init, tool_call,
 # tool_result, message, error, completion); progress_filter below turns those
 # into the live log and leaves the final result where `-o json` would have.
 DROID_ARGS=(
   exec -o stream-json -m "$MODEL"
-  --auto medium --remove-tools ApplyPatch
+  --auto medium --remove-tools "ApplyPatch,Edit,Create"
   --tag claude-triage
 )
 [ -n "$EFFORT" ] && DROID_ARGS+=(-r "$EFFORT")
@@ -773,6 +1178,7 @@ progress_filter() {
 import json, os, sys, time
 log, out, model, effort = sys.argv[1:5]
 t0, turn, last_msg, raw = time.time(), 0, None, []
+running = {}   # commands droid started and has not had back: call id -> (turn, when)
 done = err = None
 session = ""
 def note(text):
@@ -786,9 +1192,15 @@ def target(p):
         if isinstance(v, list) and v and all(isinstance(x, str) for x in v):
             v = " ".join(v)
         if isinstance(v, str) and v:
-            if key in ("file_path", "path") and v.startswith(os.getcwd() + "/"):
-                v = v[len(os.getcwd()) + 1:]
+            # A path inside the repo, whatever the tool calls it (file_path,
+            # directory_path, folder): relative, and the repo itself is ".".
+            if key not in keys[2:] and (v + "/").startswith(os.getcwd() + "/"):
+                v = v[len(os.getcwd()) + 1:] or "."
             v = " ".join(v.split())
+            if key == "command":   # "cd <the repo> && x" is x: it runs there anyway
+                for sep in (" && ", "; "):
+                    if v.startswith("cd %s%s" % (os.getcwd(), sep)):
+                        v = v[len("cd %s%s" % (os.getcwd(), sep)):]
             return v if len(v) <= 70 else v[:67] + "..."
     return ""
 for line in iter(sys.stdin.readline, ""):
@@ -809,6 +1221,14 @@ for line in iter(sys.stdin.readline, ""):
         name = e.get("toolName") or e.get("toolId") or "tool"
         tgt = target(e.get("parameters") or {})
         note("turn %d · %s%s" % (turn, name, " " + tgt if tgt else ""))
+        if name == "Execute" and e.get("id"):
+            running[e["id"]] = (turn, time.time())
+    elif kind == "tool_result" and e.get("id") in running:
+        # A command came back: without this line the log cannot tell a check
+        # still going from droid thinking about its result.
+        at, began = running.pop(e["id"])
+        note("turn %d ↳ Execute %s in %ds%s" % (at, "failed" if e.get("isError") else "returned", time.time() - began,
+                                                 ", %d still running" % len(running) if running else ""))
     elif kind == "error":
         err = e.get("message") or json.dumps(e)
         note("error: " + " ".join(str(err).split())[:300])
@@ -834,6 +1254,14 @@ if [ -n "${_DROID_REVIEW_CHILD:-}" ]; then
 else
   echo "live log: $LOG" >&2
 fi
+META="$OUT_BASE.json"
+run_meta start "$META"
+# Interrupted (Ctrl-C, or TERM from a fan-out parent): say so in the log and
+# the metadata, so nothing reads this run as still going. bash runs the trap
+# once the droid pipeline it is waiting on has ended.
+# A fan-out child leaves the log line to its parent, which writes one too.
+trap '[ -n "${_DROID_REVIEW_CHILD:-}" ] || echo "[$(elapsed "$SECONDS")] interrupted" >> "$LOG"
+      run_meta status "$META" interrupted; exit 130' INT TERM
 
 set +e
 droid "${DROID_ARGS[@]}" "$PROMPT" | progress_filter "$LOG" "$JSON" "$MODEL" "$EFFORT"
@@ -841,33 +1269,7 @@ STATUS=${PIPESTATUS[0]}
 set -e
 
 claim_out
-if ! python3 - "$JSON" "$OUT" "$MODEL" "$EFFORT" "$WHAT" "$MODE" "$ASK" <<'PY'
-import json, sys, datetime
-raw, out, model, effort, what, mode, ask = sys.argv[1:8]
-text = open(raw).read().strip()
-try:
-    d = json.loads(text.splitlines()[-1])
-except Exception:
-    sys.stderr.write("droid did not return JSON:\n" + text[-2000:] + "\n")
-    sys.exit(1)
-if d.get("is_error"):
-    sys.stderr.write("droid reported an error: " + str(d.get("result"))[:2000] + "\n")
-    sys.exit(1)
-body = (d.get("result") or "").strip()
-with open(out, "w") as f:
-    f.write("# droid %s\n\n" % ("feedback" if mode == "feedback" else "review"))
-    f.write(f"- when: {datetime.datetime.now().isoformat(timespec='seconds')}\n")
-    f.write(f"- model: {model} (reasoning {effort or 'droid default'})\n")
-    f.write(f"- scope: {what}\n")
-    if ask:
-        f.write(f"- asked: {ask}\n")
-    f.write(f"- session: {d.get('session_id')}\n")
-    f.write(f"- turns: {d.get('num_turns')}, {d.get('duration_ms', 0)//1000}s\n\n")
-    f.write(body + "\n")
-print(out)
-print(d.get("session_id") or "")
-PY
-then rm -f "$OUT"; exit 1; fi
+DROID_EXIT="$STATUS" run_meta finish "$META" "$JSON" || { rm -f "$OUT"; exit 1; }
 
 exit "$STATUS"
 }
