@@ -1,0 +1,9 @@
+{
+  "name": "droid-reviews",
+  "version": "0.1.0",
+  "description": "A band above the prompt with one row per droid review running in this repo: progress, what droid is doing, and what came of it.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "ZQK"
+  }
+}
