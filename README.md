@@ -275,9 +275,9 @@ they go, add rows to Claude Code's status line, one per running review, under
 the status line you already have:
 
 ```
-⠹ droid-review · GLM-5.3-Flash             [ 0:25 / ~0:40               ]  reading files · turn 3 · Read src/auth.ts
-⠹ droid-review round 2 · Gemini 3.8 Flash  [ 4:12 / ~1:30               ]  running checks for 0:50 · turn 9 · Execute npm test
-✓ droid-feedback · GPT-6 Luna max          [ ✓ 2:14 · 21 turns          ]  3m ago · awaiting triage
+⠹ droid-review · GLM-5.3-Flash             [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
+⠹ droid-review round 2 · Gemini 3.8 Flash  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+✓ droid-feedback · GPT-6 Luna max          [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 ```
 
 Each row opens with the command that ran, then the model, with the effort
@@ -312,18 +312,22 @@ droid logs its tool calls, not its reasoning or the writing of its answer, so
 `thinking` covers both. The log does record when a command comes back, so a
 check that is still going after 30 seconds stays `running checks`, and one
 that has returned does not. Either way the row then says for how long:
-`thinking for 0:48`, `running checks for 3:20`. The last call follows in grey,
+`thinking for 48 seconds`, `running checks for 3 minutes 20 seconds`. The last call follows in grey,
 without the `cd … &&` a command opens with.
 
-**A finished row** stays a while, and says how long ago it ended and what has
-come of the review: `awaiting triage`, then the note your agent left when it
-triaged it (`triaged 2m ago: fixed 2; rejected the race as a false
-positive`). The row goes fifteen minutes after the run ended, or after that
-note if it came later; a review still waiting to be triaged stays an hour.
+**A finished row** stays a while, and says what has come of the review:
+`awaiting triage for 3m`, then the note your agent left when it triaged it
+(`triaged 2m ago: fixed 2; rejected the race as a false positive`). A run that
+failed or was interrupted says how long ago. The row goes fifteen minutes
+after the run ended, or after that note if it came later; a review still
+waiting to be triaged stays an hour.
 
 It is one script, `skills/droid-review/statusline.py`, set in
 `~/.claude/settings.json`. Put the status line command you already have, if
 any, after `--`: it runs first, on the same input, and these rows go under it.
+If that command has a pipe, `&&` or `;` in it, give it as one quoted string
+(`-- 'mine.sh | cut -c1-80'`): unquoted, the shell would send these rows into
+the pipe along with yours.
 
 ```json
 "statusLine": {

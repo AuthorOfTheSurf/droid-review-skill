@@ -2,9 +2,9 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ⠹ droid-review · GLM-5.3-Flash             [ 0:25 / ~0:40               ]  reading files · turn 3 · Read src/auth.ts
-    ⠹ droid-review round 2 · Gemini 3.8 Flash  [ 4:12 / ~1:30               ]  running checks for 0:50 · turn 9 · Execute npm test
-    ✓ droid-feedback · GPT-6 Luna max          [ ✓ 2:14 · 21 turns          ]  3m ago · awaiting triage
+    ⠹ droid-review · GLM-5.3-Flash             [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
+    ⠹ droid-review round 2 · Gemini 3.8 Flash  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+    ✓ droid-feedback · GPT-6 Luna max          [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the end of its .log (the turn and the
@@ -32,9 +32,9 @@ comes back, so a check still going after half a minute stays "running
 checks" and one that has returned does not. Either way the row then says for
 how long.
 
-A finished run keeps its row a while: its result, how long ago it ended, and
-what has come of it — "awaiting triage", then the note the triaging agent
-left (droid-review.sh --note). The row goes fifteen minutes after it ended,
+A finished run keeps its row a while: its result, and what has come of it —
+"awaiting triage for 3m", then "triaged 2m ago:" and the note the triaging
+agent left (droid-review.sh --note). The row goes fifteen minutes after it ended,
 or after that note if it came later; one still not triaged stays an hour.
 
 Nothing running, nothing printed — your status line looks as it did.
@@ -66,7 +66,7 @@ from datetime import datetime
 sys.dont_write_bytecode = True   # no __pycache__ beside the skill
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from runs import (AMBER, BOLD, GREEN, GREY, RED, RESET, STALE_S, TEAL,  # noqa: E402,F401
-                  alive, clock, find_reviews, log_ends, log_tail, silent_for)
+                  alive, find_reviews, log_ends, log_tail, silent_for)
 
 SHOW_FINISHED_S = 900     # a finished row stays this long after the last thing that happened to it
 SHOW_UNTRIAGED_S = 3600   # and one nobody has said anything about yet, this long
@@ -123,13 +123,13 @@ def timed_as(m):
     return (m.get("kind") or "review", m.get("model"), (m.get("round") or 1) > 1)
 
 
-BAR_W = 28   # cells between the brackets: room for "interrupted after 1:02:33"
+BAR_W = 28   # cells between the brackets: room for "⢸ 59m 59s / ~59m 59s" and "interrupted after 1h 2m"
 # Grounds for the bar (background colours) and the text that sits on them.
 ON_GREEN, ON_AMBER, ON_RED, ON_TEAL, ON_EMPTY = (
     "\033[48;2;32;110;58m", "\033[48;2;140;98;20m", "\033[48;2;150;44;40m",
     "\033[48;2;30;104;96m", "\033[48;2;46;46;46m")
 INK = "\033[1;97m"   # bold bright white: Claude Code dims a status line's default colour
-LABEL = "\033[97m"   # the same white, not bold: what a row leads with
+LABEL = "\033[97m"   # the same white, not bold: what a row leads with, and what droid is doing
 # The model's name: periwinkle. One colour for every model, and none of the
 # colours that say how a run went (green, amber, red) or that it is alive (teal).
 MODEL = "\033[38;2;137;180;250m"
@@ -142,7 +142,7 @@ def mix(a, b, t):
 
 
 def bar(text, ground, fraction=1.0, now=None):
-    """One bar with its text inside: [ 0:25 / ~0:40      ], the first
+    """One bar with its text inside: [ ⢸ 25s / ~40s      ], the first
     fraction of its cells on the ground colour. The cell at the edge of the
     fill shades in as it is covered (a little ahead, to be seen), so the bar
     moves at every repaint and not only when a whole cell fills (on a
@@ -206,6 +206,27 @@ def uncd(command):
     return re.sub(r"^(?:\(?\s*cd\s+\S+\s*(?:&&|;)\s*)+", "", command)
 
 
+def short(seconds):
+    """A length of time for the bar: "45s", "2m 3s", "4m", "1h 2m", "2h"."""
+    s = max(0, int(seconds))
+    if s < 60:
+        return "%ds" % s
+    big, small = ("%dh" % (s // 3600), "%dm" % (s // 60 % 60)) if s >= 3600 else ("%dm" % (s // 60), "%ds" % (s % 60))
+    return big if small[0] == "0" else big + " " + small
+
+
+def spoken(seconds):
+    """A length of time in words, for a sentence: "45 seconds", "2 minutes 3
+    seconds", "1 hour 5 minutes" (past the hour, seconds no longer matter)."""
+    s = max(0, int(seconds))
+    said = lambda n, unit: "%d %s%s" % (n, unit, "" if n == 1 else "s")
+    if s >= 3600:
+        parts = [said(s // 3600, "hour"), said(s // 60 % 60, "minute") if s // 60 % 60 else ""]
+    else:
+        parts = [said(s // 60, "minute") if s >= 60 else "", said(s % 60, "second") if s % 60 or s < 60 else ""]
+    return " ".join(p for p in parts if p)
+
+
 def ago(seconds):
     """How long since a run ended, in a row: "just now", "3m ago", "2h ago"."""
     m = int(seconds) // 60
@@ -258,11 +279,13 @@ def fit(text, columns):
 
 def triage(m, now):
     """What has come of a finished review: the note the agent that triaged it
-    left (droid-review.sh --note), and when; or that there is none yet.
-    Returns (text, seconds since the note or None)."""
+    left (droid-review.sh --note), and when; or that there is none yet, and
+    for how long (since the run ended). Returns (text, seconds since the note
+    or None)."""
     notes = [n for n in m.get("responses") or [] if isinstance(n, dict) and n.get("text")]
     if not notes:
-        return AMBER + "awaiting triage" + RESET, None
+        waited = int(m.get("_ago") or 0) // 60
+        return AMBER + "awaiting triage" + (" for %s" % short(waited * 60) if waited else "") + RESET, None
     noted = since(notes[-1].get("at"), now)
     return (GREEN + "triaged" + RESET + GREY + (" " + ago(noted) if noted is not None else "") + ": "
             + " ".join(str(notes[-1]["text"]).split()) + RESET), noted
@@ -328,6 +351,9 @@ def rows(folder, now, columns):
             if hist is None:
                 hist = history(folder, runs)
             elapsed = since(m.get("started"), now) or 0
+            # The spinner leads the row and, in the bar's own white, the bar: its
+            # time then starts in the column a finished bar's does after its ✓.
+            spin = SPIN[int(now / REPAINT_S) % len(SPIN)]
             past = hist.get(timed_as(m)) or []   # by id, not name
             estimate = statistics.median(past) if past else None
             lines = log_tail(os.path.join(folder, m["_name"] + ".log"))
@@ -337,22 +363,23 @@ def rows(folder, now, columns):
             quiet = silent_for(folder, m, now)
             now_doing = phase(lines, quiet, m.get("kind") or "review")
             if quiet >= QUIET_S and now_doing != "starting":
-                doing = "for %s%s" % (clock(quiet), " · " + doing if doing else "")   # thinking for, running checks for
+                doing = "for %s%s" % (spoken(quiet), " · " + doing if doing else "")   # thinking for, running checks for
             if estimate:
-                meter = bar("%s / ~%s" % (clock(elapsed), clock(estimate)), ON_GREEN, progress(elapsed, estimate))
+                meter = bar("%s %s / ~%s" % (spin, short(elapsed), short(estimate)), ON_GREEN,
+                            progress(elapsed, estimate))
             else:
-                meter = bar(clock(elapsed), ON_TEAL, None, now)
-            line = "%s %s  %s  %s%s" % (MODEL + SPIN[int(now / REPAINT_S) % len(SPIN)] + RESET, who, meter,
-                                        INK + now_doing + RESET,
+                meter = bar(spin + " " + short(elapsed), ON_TEAL, None, now)
+            line = "%s %s  %s  %s%s" % (MODEL + spin + RESET, who, meter,
+                                        LABEL + now_doing + RESET,
                                         GREY + (" " if doing.startswith("for ") else " · ") + doing + RESET if doing else "")
         else:
-            took = clock(m["duration_s"]) if m.get("duration_s") is not None else "?"
+            took = short(m["duration_s"]) if m.get("duration_s") is not None else "?"
             when = ago(m["_ago"])
             # A finished run says so in the same bar, full, in its result's colour.
             if status == "ok":
                 line = "%s %s  %s  %s" % (
                     GREEN + BOLD + "✓" + RESET, who, bar("✓ %s · %s turns" % (took, m.get("turns")), ON_GREEN),
-                    GREY + when + " · " + RESET + m["_triage"])
+                    m["_triage"])
             elif status == "failed":
                 err = " ".join(str(m.get("error") or "").split())
                 line = "%s %s  %s  %s" % (RED + BOLD + "✗" + RESET, who, bar("failed after " + took, ON_RED),
@@ -395,12 +422,15 @@ def main(argv):
     # input and print it first, so these rows stack under it.
     # The shell that ran this already split and unquoted the words: quote them
     # again and hand them back to a shell, so quoting survives and a leading
-    # VAR=value still sets a variable. One word is a whole command line already.
+    # VAR=value still sets a variable. One word is a whole command line already
+    # (how a pipeline has to be given), unless it is the path of a program,
+    # which may have a space in it.
     if "--" in argv:
         cmd = argv[argv.index("--") + 1:]
         if cmd:
+            whole = len(cmd) == 1 and not os.path.isfile(os.path.expanduser(cmd[0]))
             try:
-                r = subprocess.run(cmd[0] if len(cmd) == 1 else requote(cmd), shell=True, input=raw,
+                r = subprocess.run(cmd[0] if whole else requote(cmd), shell=True, input=raw,
                                    capture_output=True, text=True, timeout=5)
                 if r.stdout.strip():
                     sys.stdout.write(r.stdout if r.stdout.endswith("\n") else r.stdout + "\n")

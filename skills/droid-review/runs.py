@@ -15,12 +15,16 @@ TEAL, GREEN, AMBER, RED, GREY = (
 
 
 def find_reviews(start):
-    """The nearest .droid-reviews/ at or above start, or None."""
+    """The .droid-reviews/ of the repo start is in: the nearest at or above
+    it, looking no higher than the repo's own top. A repo with no reviews
+    that sits inside another must not show, or note, that one's."""
     d = os.path.abspath(start or os.getcwd())
     while True:
         cand = os.path.join(d, ".droid-reviews")
         if os.path.isdir(cand):
             return cand
+        if os.path.exists(os.path.join(d, ".git")):
+            return None
         parent = os.path.dirname(d)
         if parent == d:
             return None
