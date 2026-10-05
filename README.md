@@ -11,7 +11,7 @@ For your main coding agent AND your backup/review agent, you will want harness (
 ```sh
 /droid-review
 # Or with options
-/droid-review [glm|gemini|luna|auto|fable|opus|astra|sol|grok|qwen|kimi|deepseek] [effort] [focus]
+/droid-review [glm|gemini|luna|auto|fable|opus|sonnet|astra|sol|grok|qwen|kimi|deepseek] [effort] [focus]
 ```
 
 What happens:
@@ -118,6 +118,7 @@ Usually you will need to restart your `claude` in order to pick up new skills. A
 | `auto` | `auto` | none (droid picks) | — |
 | `fable` | `claude-fable-5.1` | high | off … max |
 | `opus` | `claude-opus-5-5` | medium | low … max |
+| `sonnet` | `claude-sonnet-5-5` | high | low … max |
 | `astra` | `gpt-6-astra` | medium | low … max |
 | `sol` | `gpt-6.1-sol` | medium | low … max |
 | `grok` | `grok-4.7` | high | low … xhigh |
