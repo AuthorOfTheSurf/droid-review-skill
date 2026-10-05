@@ -3,7 +3,7 @@
 this repo, under whatever status line you already have.
 
     ⠹ droid-review · GLM-5.3-Flash               [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
-    ⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+    ⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50s · turn 9 · Execute npm test
     ✓ droid-feedback · GPT-6 Luna max            [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
@@ -207,24 +207,12 @@ def uncd(command):
 
 
 def short(seconds):
-    """A length of time for the bar: "45s", "2m 3s", "4m", "1h 2m", "2h"."""
+    """A length of time, as the row writes it: "45s", "2m 3s", "4m", "1h 2m", "2h"."""
     s = max(0, int(seconds))
     if s < 60:
         return "%ds" % s
     big, small = ("%dh" % (s // 3600), "%dm" % (s // 60 % 60)) if s >= 3600 else ("%dm" % (s // 60), "%ds" % (s % 60))
     return big if small[0] == "0" else big + " " + small
-
-
-def spoken(seconds):
-    """A length of time in words, for a sentence: "45 seconds", "2 minutes 3
-    seconds", "1 hour 5 minutes" (past the hour, seconds no longer matter)."""
-    s = max(0, int(seconds))
-    said = lambda n, unit: "%d %s%s" % (n, unit, "" if n == 1 else "s")
-    if s >= 3600:
-        parts = [said(s // 3600, "hour"), said(s // 60 % 60, "minute") if s // 60 % 60 else ""]
-    else:
-        parts = [said(s // 60, "minute") if s >= 60 else "", said(s % 60, "second") if s % 60 or s < 60 else ""]
-    return " ".join(p for p in parts if p)
 
 
 def ago(seconds):
@@ -365,7 +353,7 @@ def rows(folder, now, columns):
             quiet = silent_for(folder, m, now)
             now_doing = phase(lines, quiet, m.get("kind") or "review")
             if quiet >= QUIET_S and now_doing != "starting":
-                doing = "for %s%s" % (spoken(quiet), " · " + doing if doing else "")   # thinking for, running checks for
+                doing = "for %s%s" % (short(quiet), " · " + doing if doing else "")   # thinking for, running checks for
             if estimate:
                 meter = bar("%s %s / ~%s" % (spin, short(elapsed), short(estimate)), ON_GREEN,
                             progress(elapsed, estimate))

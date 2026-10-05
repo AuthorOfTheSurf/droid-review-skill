@@ -276,7 +276,7 @@ the status line you already have:
 
 ```
 ⠹ droid-review · GLM-5.3-Flash               [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
-⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50s · turn 9 · Execute npm test
 ✓ droid-feedback · GPT-6 Luna max            [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 ```
 
@@ -312,7 +312,7 @@ droid logs its tool calls, not its reasoning or the writing of its answer, so
 `thinking` covers both. The log does record when a command comes back, so a
 check that is still going after 30 seconds stays `running checks`, and one
 that has returned does not. Either way the row then says for how long:
-`thinking for 48 seconds`, `running checks for 3 minutes 20 seconds`. The last call follows in grey,
+`thinking for 48s`, `running checks for 3m 20s`. The last call follows in grey,
 without the `cd … &&` a command opens with.
 
 **A finished row** stays a while, and says what has come of the review:

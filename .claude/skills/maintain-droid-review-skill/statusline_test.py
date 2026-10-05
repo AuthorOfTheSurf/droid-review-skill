@@ -238,13 +238,10 @@ class StatusLine(unittest.TestCase):
         self.f.run("a", log=log)
         old = NOW - 45
         os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
-        self.assertIn("]  running checks for 45 seconds · turn 3 · Execute npm test", self.f.rows()[0])   # and no cd
+        self.assertIn("]  running checks for 45s · turn 3 · Execute npm test", self.f.rows()[0])   # and no cd
         self.f.run("a", log=log + ["[1m00s] turn 3 ↳ Execute returned in 40s"])
         os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
-        self.assertIn("]  thinking for 45 seconds · turn 3 · Execute npm test", self.f.rows()[0])   # the call, not its return
-        self.assertEqual([sl.spoken(s) for s in (1, 45, 60, 61, 123, 600, 3599, 3600, 3725)],
-                         ["1 second", "45 seconds", "1 minute", "1 minute 1 second", "2 minutes 3 seconds",
-                          "10 minutes", "59 minutes 59 seconds", "1 hour", "1 hour 2 minutes"])
+        self.assertIn("]  thinking for 45s · turn 3 · Execute npm test", self.f.rows()[0])   # the call, not its return
 
     def test_dead_process_reads_as_stopped(self):
         self.f.run("a", pid=DEAD_PID, log=["[0m20s] turn 2 · Read x"])
