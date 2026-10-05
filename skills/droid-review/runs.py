@@ -51,6 +51,19 @@ def log_ends(path):
     return first, (tail[-1] if tail else None)
 
 
+def log_tail(path, size=8192):
+    """The last lines of a log (whole lines only), reading only its end."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            start = max(0, f.tell() - size)
+            f.seek(start)
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    return lines[1:] if start else lines   # from mid-file, the first is a fragment
+
+
 def clock(s):
     s = max(0, int(s))
     return "%d:%02d" % (s // 60, s % 60) if s < 3600 else "%d:%02d:%02d" % (s // 3600, s // 60 % 60, s % 60)

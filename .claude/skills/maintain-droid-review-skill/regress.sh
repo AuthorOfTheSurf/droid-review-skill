@@ -78,6 +78,13 @@ for f in round started finished model scope branch base "uncommitted at start" "
   check "review: header has '$f'"          grep -q "^- $f: " "$md"
 done
 check "review: turns is the last header line" sh -c "sed -n '/^- /p' '$md' | head -20 | tail -1 | grep -q '^- turns: '"
+check "review: uncommitted files recorded" json "$m" 'sorted(m["uncommitted_files"])==["committed","newdir/a","newdir/b","staged","untracked"] and all(m["uncommitted_files"].values())'
+PATH="$t/bin:$PATH" "$d" --compare > "$t/c1" 2>&1; RC=$?
+check "compare: nothing changed yet"       sh -c "[ $RC = 0 ] && grep -q 'uncommitted then: 5 files · now: 5 files' '$t/c1' && grep -q 'nothing has changed since the review' '$t/c1'"
+echo more >> untracked
+PATH="$t/bin:$PATH" "$d" --compare "$md" > "$t/c2" 2>&1
+check "compare: an uncommitted edit shows" grep -Eq '^  untracked +uncommitted then, different now' "$t/c2"
+echo n > untracked
 check "review: .droid-reviews ignores itself" [ -z "$(git status --porcelain --untracked-files=all .droid-reviews)" ]
 
 # 2. Continue it.
@@ -112,6 +119,17 @@ check "neither started droid"              sh -c "! grep -q stream-json '$t/call
 : > "$t/calls"
 run "$t/o2g" --base master "auth changes"
 check "plain ask: droid asked nothing more than a bare run" sh -c "[ '$RC' = 0 ] && ! grep -q -- --list-tools '$t/calls' && [ \"\$(grep -c -- --help '$t/calls')\" -le 1 ]"
+
+# A model list with a name that is no model is a mistake, said loudly: every
+# wrong name, what it could have meant, and no run. Commas alone are not a list.
+: > "$t/calls"
+run "$t/o2h" --base master "glm,sonnet,nonsuch look at x"
+check "mixed model list: exit 2, names each" sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'sonnet' in glm,sonnet,nonsuch (did you mean .*claude-sonnet\" '$t/o2h.err' && grep -q \"^no model 'nonsuch' in glm,sonnet,nonsuch\$\" '$t/o2h.err' && grep -q '^shortcuts: glm ' '$t/o2h.err'"
+run "$t/o2i" --base master --models glm,sonnet
+check "mixed --models: the same"           sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'sonnet' in glm,sonnet (did you mean\" '$t/o2i.err'"
+check "neither started droid"              sh -c "! grep -q stream-json '$t/calls'"
+run "$t/o2j" --base master "first,second, then the rest"
+check "commas with no model: an ask"       sh -c "[ '$RC' = 0 ] && grep -q '^- asked: first,second, then the rest' \"\$(sed -n 1p '$t/o2j')\""
 
 # 3. Fan-out.
 : > "$t/calls"
@@ -242,12 +260,12 @@ for _ in $(seq 1 60); do
   live="$(sl)"
   case "$live" in *"turn 1 · Read"*) break ;; esac
 done
-check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[◐◓◑◒] droid · ')" = 2 ]
+check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[◐◓◑◒] droid-review (')" = 2 ]
 check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 'turn 1 · Read README.md'" _ "$live"
 wait
 after="$(sl)"
 # (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid · review *· Gemini 3.8 Flash .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid · review *· GLM-5.3-Flash .* done in '" _ "$after"
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid-review (Gemini 3.8 Flash) .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid-review (GLM-5.3-Flash) .* done in '" _ "$after"
 check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
 check "history: unit tests"                python3 "$here/reviews_test.py"

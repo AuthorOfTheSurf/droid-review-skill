@@ -129,6 +129,10 @@ No shortcut pins an effort: each runs at droid's default for that model, and
 a higher level is opt-in for the run you name it on (`/droid-review luna max`).
 A max-effort review can take half an hour.
 
+A comma list where some names are models and some are not (`glm,sonet`) stops
+before anything runs and names each one that is not, with the ids it could
+have meant.
+
 Any other model id droid accepts works as the first word too (`droid exec -m x
 --list-tools` lists them all; `droid exec --help` lags behind). A shortcut at
 droid's default effort starts at once: there is nothing to check, so droid is
@@ -166,6 +170,7 @@ droid-review.sh --checks docs/testing.md
 droid-review.sh --session last "re-check the fixes in HEAD"
 droid-review.sh --note last "fixed 2; the race is a false positive"   # what came of a review
 droid-review.sh --history                # this branch's reviews (--all: every branch)
+droid-review.sh --compare                # the newest review against the repo now (or: --compare <review|session>)
 droid-review.sh --help
 ```
 
@@ -223,6 +228,46 @@ before it asks for the re-check. Read down a thread and you get the finding,
 what was done, and the reviewer's verdict on it. A note is the agent's own
 account, kept in the run's `.json` and under `## Response` in the review file.
 
+### Is a review still current, and is a finding yours?
+
+`droid-review.sh --compare` (the newest finished review; or `--compare <review
+file | session id>`) sets a review against the repo as it is now. No model
+runs.
+
+```
+GLM-5.3-Flash · review · round 1 · today 00:24
+reviewed c7d7fb5 · HEAD is 4073ac9, 2 commits on
+uncommitted then: none · now: 2 files
+
+changed since the review: 3 files
+  README.md                          committed
+  skills/droid-review/statusline.py  committed, uncommitted
+  notes.txt                          uncommitted (untracked)
+
+cited in the review: 2
+  skills/droid-review/statusline.py:47  changed on this branch · changed since (committed)
+  skills/droid-review/runs.py:12        not changed on this branch · unchanged, now line 14
+```
+
+- **Changed since** is measured against your working tree, not just HEAD:
+  staged, unstaged and untracked changes count. Before paying for a re-check,
+  this says whether anything the review looked at has moved.
+- **Each `file:line` the review cites** gets two answers. Did this branch
+  change that line (`changed on this branch`, `new on this branch`), or was it
+  already there (`not changed on this branch`) — a finding about code the
+  branch did not touch is likely pre-existing. And has the line changed since
+  the review, in a commit or uncommitted; if not, where it sits now.
+- A reviewer's line number is approximate and a fix often lands beside it, so
+  a change within 3 lines counts.
+- A review can run on a dirty tree. Each run records the content hash of every
+  file that was uncommitted then, so such a file is later either the same as
+  the reviewer saw or `uncommitted then, different now`, in which case its
+  lines cannot be compared. Reviews from before this was recorded say so.
+
+The citations are read out of the review's prose, so one written as
+"line 40 of the script" is not seen. `not changed on this branch` is where to
+look, not a verdict: a branch can break old code without touching it.
+
 ### Live status in Claude Code (optional)
 
 Reviews usually run in the background while you keep working. To see them as
@@ -230,17 +275,51 @@ they go, add rows to Claude Code's status line, one per running review, under
 the status line you already have:
 
 ```
-◓ droid · review   · GLM-5.3-Flash     ▓▓▓▓▓▓░░░░  0:25 / ~0:40  turn 3 · Execute npm test
-◓ droid · review 2 · Gemini 3.8 Flash  ▓▓░░░░░░░░  0:12 / ~1:30  turn 1 · Read README.md
-✓ droid · review   · GPT-6 Luna max    ██████████  done in 2:14 · 21 turns · .droid-reviews/…-gpt-6-luna.md
+◓ droid-review (GLM-5.3-Flash)        [ 0:25 / ~0:40               ]  reading files · turn 3 · Read src/auth.ts
+◓ droid-review 2 (Gemini 3.8 Flash)   [ 4:12 / ~1:30               ]  running checks for 0:50 · turn 9 · Execute npm test
+✓ droid-feedback (GPT-6 Luna max)     [ done in 2:14 · 21 turns    ]  3m ago · not triaged yet
 ```
 
-"review 2" is a re-check (`--session`), the second round of that review; the
-review file's title and metadata carry the round too. The time after `~` is
-the median of that model's earlier finished runs of the same kind (first
-review or re-check) in the repo, and the bar fills toward it (amber once past it; a pulse until there is
-any history). A finished run stays fifteen minutes with a solid bar and its result in bold, then goes. With
-nothing running it prints nothing.
+Each row opens with the command that ran and, in brackets, the model (with the
+effort, when you named one). "droid-review 2" is a re-check (`--session`), the
+second round of that review; the review file's title and metadata carry the
+round too.
+
+**The bar** is one piece, with its text inside. Its ground fills from the left
+against the time after `~`: the median of that model's earlier finished runs of
+the same kind in the repo (review or feedback, first round or re-check). It
+reaches four fifths at the estimate and stops there, turning amber once the
+run is past it: the open fifth is the part nobody knows. Only a finished run
+fills the bar. Until there is any history a block drifts across
+it. When the run ends, the same bar holds the result. With nothing to show it
+prints nothing.
+
+**After the bar** is what droid is doing right now, which is the thing to read
+when a run is well past its estimate. It is worked out from the kinds of tool
+droid called in its last three turns, not from what the calls said:
+
+| It says | When droid's recent calls are mostly |
+|---|---|
+| `starting` | none yet |
+| `reading files` | Read, Grep, Glob, LS, or a command that only looks (`git diff`, `cat`, `ls` …) |
+| `running checks` | any other command (`running commands` in a feedback run) |
+| `researching` | WebSearch, FetchUrl |
+| `planning` | TodoWrite |
+| `working` | any other tool |
+| `thinking` | nothing logged for 30 seconds, and no command still out |
+
+droid logs its tool calls, not its reasoning or the writing of its answer, so
+`thinking` covers both. The log does record when a command comes back, so a
+check that is still going after 30 seconds stays `running checks`, and one
+that has returned does not. Either way the row then says for how long:
+`thinking for 0:48`, `running checks for 3:20`. The last call follows in grey,
+without the `cd … &&` a command opens with.
+
+**A finished row** stays a while, and says how long ago it ended and what has
+come of the review: `not triaged yet`, then the note your agent left when it
+triaged it (`triaged 2m ago: fixed 2; rejected the race as a false
+positive`). The row goes fifteen minutes after the run ended, or after that
+note if it came later; a review still waiting to be triaged stays an hour.
 
 It is one script, `skills/droid-review/statusline.py`, set in
 `~/.claude/settings.json`. Put the status line command you already have, if

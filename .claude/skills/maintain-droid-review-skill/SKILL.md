@@ -130,7 +130,8 @@ purpose — the reviewer runs the test suites.
 
 **Stream-json events (one small model run — ask before spending it).**
 `progress_filter` reads `system/init` (`session_id`, `model`, `reasoning_effort`),
-`tool_call` (`messageId`, `toolName`, `parameters`), `error` (`message`) and
+`tool_call` (`id`, `messageId`, `toolName`, `parameters`), `tool_result` (`id`,
+`isError`: the log line that says a command came back), `error` (`message`) and
 `completion` (`finalText`, `numTurns`, `durationMs`, `session_id`).
 
 ```bash
@@ -198,14 +199,17 @@ checks what each leaves behind:
 It covers a review, `--session last`, a fan-out, a fan-out where both fail
 silently, droid reporting an error, droid printing garbage, an interrupt of a
 single run and of a fan-out (TERM to the whole process group),
-droid-feedback, and `--note` / `--history` / droid-history (a note's place in
+droid-feedback, `--compare` (the uncommitted files a run records, and that a
+later edit to one shows), and `--note` / `--history` / droid-history (a note's place in
 the .json and the review file, that it leaves `--session last` alone, rounds,
 how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
 is a script bug, or a contract the check encodes that changed on purpose:
 then change the check in the same commit. It also checks the status line rows live during a slowed stub run, and runs
-`statusline_test.py` (the rows for every run state, against fixture folders)
-and `reviews_test.py` (threads, the branch filter, round lines, notes).
+`statusline_test.py` (the rows for every run state, the bar, and what droid
+is taken to be doing from its tool calls, against fixture folders)
+and `reviews_test.py` (threads, the branch filter, round lines, notes, and
+`--compare` in a throwaway repo).
 To look at the rows in a real session instead, `demo-statusline.sh` runs slowed
 stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
 on the scripts (shellcheck is clean: any warning is new). When a fix covers a

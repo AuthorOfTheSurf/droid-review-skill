@@ -10,6 +10,9 @@
 #
 # Needs the status line set up (README: "Live status in Claude Code").
 set -euo pipefail
+# Run from inside a droid-review fan-out (a reviewer trying this script), the
+# child markers would make the demo write into that run's files.
+unset _DROID_REVIEW_CHILD _DROID_REVIEW_STAMP _DROID_REVIEW_CATALOG
 
 here="$(cd "$(dirname "$0")" && pwd)"
 r="$(cd "$here/../../.." && pwd)"

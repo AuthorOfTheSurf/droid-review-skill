@@ -79,14 +79,14 @@ class StatusLine(unittest.TestCase):
         self.f.close()
 
     def test_nothing_running_prints_nothing(self):
-        self.f.run("old", status="ok", finished=iso(3600), duration_s=40, turns=9)
+        self.f.run("old", status="ok", finished=iso(3601), duration_s=40, turns=9)
         self.assertEqual(self.f.rows(), [])
 
     def test_running_row_shows_model_effort_elapsed_and_activity(self):
         self.f.run("a", log=["[0m01s] started glm-5.3-flash (reasoning high) session s",
                              "[0m20s] turn 3 · Execute git diff --stat"])
         [row] = self.f.rows()
-        self.assertIn("droid · review · glm-5.3-flash high", row)
+        self.assertIn("droid-review (glm-5.3-flash high)", row)
         self.assertIn("0:25", row)
         self.assertIn("turn 3 · Execute git diff --stat", row)
         self.assertNotIn("/ ~", row)   # no history: no estimate
@@ -110,17 +110,113 @@ class StatusLine(unittest.TestCase):
         self.f.run("a", log=["[0m20s] turn 2 · Read x"])
         self.assertIn("/ ~1:00", self.f.rows()[0])
 
+    def filled(self, raw, ground):
+        """How many of a bar's cells sit on a ground colour."""
+        return sum(len(text) for g, text in re.findall(r"(\033\[48;[0-9;]*m)\033\[1;97m([^\033]*)", raw) if g == ground)
+
+    def test_the_bar_is_one_piece_with_its_text_inside(self):
+        b = sl.bar("0:20 / ~0:40", sl.ON_GREEN, 0.5)
+        self.assertEqual(sl.ANSI.sub("", b), "[ 0:20 / ~0:40" + " " * (sl.BAR_W - 13) + "]")
+        self.assertEqual(self.filled(b, sl.ON_GREEN), sl.BAR_W // 2)
+        self.assertEqual(self.filled(b, sl.ON_EMPTY), sl.BAR_W - sl.BAR_W // 2)
+        self.assertEqual(self.filled(sl.bar("x", sl.ON_GREEN), sl.ON_GREEN), sl.BAR_W)   # done: full
+        long = sl.ANSI.sub("", sl.bar("x" * 99, sl.ON_GREEN))
+        self.assertEqual(len(long), sl.BAR_W + 2)   # never wider, so rows stay lined up
+
     def test_bar_fills_with_time_and_turns_amber_past_the_estimate(self):
-        self.assertEqual(sl.ANSI.sub("", sl.bar(20, 40)), "▓▓▓▓▓░░░░░")
-        self.assertIn(sl.GREEN, sl.bar(20, 40))
-        self.assertEqual(sl.ANSI.sub("", sl.bar(90, 40)), "▓" * 10)
-        self.assertIn(sl.AMBER, sl.bar(90, 40))
-        self.assertEqual(sl.ANSI.sub("", sl.bar(3, None)).count("▓"), 1)   # pulse
+        for i, d in enumerate((40, 40)):
+            self.f.run("ok%d" % i, status="ok", finished=iso(9999), duration_s=d, turns=5)
+        self.f.run("a", started=iso(20), log=["[0m20s] turn 2 · Read x"])
+        self.f.run("b", started=iso(90), log=["[0m20s] turn 2 · Read x"])
+        late, early = sl.rows(self.f.dir, NOW, 200)
+        self.assertEqual(self.filled(early, sl.ON_GREEN), int(sl.BAR_W * 0.4))   # half the estimate
+        self.assertEqual(self.filled(late, sl.ON_GREEN), 0)                        # past it: amber
+        self.assertIn("[ 1:30 / ~0:40", sl.ANSI.sub("", late))
+
+    def test_a_running_bar_stops_at_four_fifths_however_late(self):
+        self.assertEqual(sl.progress(20, 40), 0.4)
+        self.assertEqual(sl.progress(40, 40), 0.8)
+        self.assertEqual(sl.progress(40000, 40), 0.8)
+        self.f.run("ok", status="ok", finished=iso(9999), duration_s=40, turns=5)
+        self.f.run("a", started=iso(40000), log=["[0m20s] turn 2 · Read x"])
+        [row] = sl.rows(self.f.dir, NOW, 200)
+        self.assertEqual(self.filled(row, sl.ON_AMBER), int(sl.BAR_W * 0.8))   # a thousand times over
+        self.assertEqual(self.filled(row, sl.ON_EMPTY), sl.BAR_W - int(sl.BAR_W * 0.8))
+
+    def test_no_history_a_block_drifts_across_the_bar(self):
+        self.f.run("a", log=["[0m20s] turn 2 · Read x"])
+        one, two = sl.rows(self.f.dir, NOW, 200)[0], sl.rows(self.f.dir, NOW + 1, 200)[0]
+        self.assertEqual(self.filled(one, sl.ON_TEAL), 4)
+        self.assertNotEqual(one.index(sl.ON_TEAL), two.index(sl.ON_TEAL))
+
+    def test_feedback_is_timed_against_feedback(self):
+        self.f.run("r", status="ok", finished=iso(9999), duration_s=600, turns=5)
+        self.f.run("f", status="ok", kind="feedback", finished=iso(9999), duration_s=60, turns=5)
+        self.f.run("a", kind="feedback", log=["[0m20s] turn 2 · Read x"])
+        self.assertIn("/ ~1:00", self.f.rows()[0])
+
+    def phase(self, *calls, quiet=0, kind="review"):
+        return sl.phase(["[0m01s] started glm (reasoning high) session s"] +
+                        ["[0m%02ds] turn %d · %s" % (i, turn, call) for i, (turn, call) in enumerate(calls)], quiet, kind)
+
+    def test_phase_is_the_commonest_kind_of_call_in_the_last_turns(self):
+        self.assertEqual(self.phase(), "starting")
+        self.assertEqual(self.phase((1, "Skill review")), "starting")
+        self.assertEqual(self.phase((1, "Read a"), (2, "Grep x"), (3, "Glob *.py")), "reading files")
+        self.assertEqual(self.phase((1, "Read a"), (2, "WebSearch x"), (3, "FetchUrl http://y")), "researching")
+        self.assertEqual(self.phase((1, "TodoWrite plan")), "planning")
+        self.assertEqual(self.phase((1, "GenerateImage x")), "working")
+        # Twenty reads long ago do not outweigh what it is doing now.
+        self.assertEqual(self.phase(*[(i, "Read f") for i in range(1, 21)],
+                                    (21, "Execute npm test"), (22, "Execute npm run lint"), (23, "Read out.log")), "running checks")
+        self.assertEqual(self.phase((1, "Read a"), (2, "Execute npm test")), "running checks")   # a tie: the latest
+
+    def test_phase_tells_looking_from_running_by_the_commands_first_word(self):
+        for look in ("git diff --stat", "cd /repo && git log --oneline", "cat x", "FOO=1 grep -n x y", "(cd sub && ls)"):
+            self.assertEqual(self.phase((1, "Execute " + look)), "reading files", look)
+        for run in ("npm test", "python3 t.py", "cd /repo && .claude/skills/x/regress.sh", "bash -n x.sh"):
+            self.assertEqual(self.phase((1, "Execute " + run)), "running checks", run)
+        self.assertEqual(self.phase((1, "Execute npm test"), kind="feedback"), "running commands")
+
+    def test_gone_quiet_it_is_thinking_unless_a_command_is_going(self):
+        self.assertEqual(self.phase((1, "Read a"), (2, "WebSearch x"), quiet=sl.QUIET_S), "thinking")
+        self.assertEqual(self.phase((1, "Read a"), (2, "WebSearch x"), quiet=sl.QUIET_S - 1), "researching")
+        self.assertEqual(self.phase((1, "Read a"), (2, "Execute npm test"), quiet=300), "running checks")
+
+    def test_a_command_that_came_back_is_not_still_running(self):
+        log = ["[0m10s] turn 1 · Read a", "[0m20s] turn 2 · Execute npm test"]
+        back = "[1m15s] turn 2 ↳ Execute returned in 55s"
+        self.assertEqual(sl.phase(log, 300), "running checks")
+        self.assertEqual(sl.phase(log + [back], 300), "thinking")            # quiet since it returned
+        self.assertEqual(sl.phase(log + [back], 5), "running checks")        # just back: still what it is at
+        self.assertEqual(sl.phase(log + ["[1m15s] turn 2 ↳ Execute failed in 55s"], 300), "thinking")
+        # Two started together: one back, one still out.
+        two = log + ["[0m20s] turn 2 · Execute npm run lint", "[0m30s] turn 2 ↳ Execute returned in 10s, 1 still running"]
+        self.assertEqual(sl.phase(two, 300), "running checks")
+        self.assertEqual(sl.phase(two + [back], 300), "thinking")
+        # A command that only looks, still out, is not a check.
+        self.assertEqual(sl.phase(["[0m20s] turn 2 · Execute git log -S x"], 300), "reading files")
+
+    def test_running_row_leads_with_the_phase(self):
+        self.f.run("a", log=["[0m10s] turn 2 · Read a", "[0m20s] turn 3 · Execute git diff --stat"])
+        [raw] = sl.rows(self.f.dir, NOW, 200)
+        self.assertIn(sl.INK + "reading files" + sl.RESET, raw)   # bright, not grey
+        self.assertIn("]  reading files · turn 3 · Execute git diff --stat", sl.ANSI.sub("", raw))
+
+    def test_a_quiet_row_says_for_how_long(self):
+        log = ["[0m10s] turn 2 · Read a", "[0m20s] turn 3 · Execute cd /repo && npm test"]
+        self.f.run("a", log=log)
+        old = NOW - 45
+        os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
+        self.assertIn("]  running checks for 0:45 · turn 3 · Execute npm test", self.f.rows()[0])   # and no cd
+        self.f.run("a", log=log + ["[1m00s] turn 3 ↳ Execute returned in 40s"])
+        os.utime(os.path.join(self.f.dir, "a.log"), (old, old))
+        self.assertIn("]  thinking for 0:45 · turn 3 · Execute npm test", self.f.rows()[0])   # the call, not its return
 
     def test_dead_process_reads_as_stopped(self):
         self.f.run("a", pid=DEAD_PID, log=["[0m20s] turn 2 · Read x"])
         [row] = self.f.rows()
-        self.assertIn("stopped (its process is gone)", row)
+        self.assertRegex(row, r"\[ stopped +\]  just now · its process is gone")
 
     def test_dead_process_hidden_once_its_log_is_old(self):
         self.f.run("a", pid=DEAD_PID, log=["[0m20s] turn 2 · Read x"])
@@ -132,25 +228,28 @@ class StatusLine(unittest.TestCase):
         self.f.run("ok", status="ok", finished=iso(890), duration_s=92, turns=14)
         self.f.run("bad", status="failed", finished=iso(5), duration_s=3, error="droid reported: no auth")
         self.f.run("int", status="interrupted", finished=iso(1), duration_s=7)
-        self.f.run("gone", status="ok", finished=iso(901), duration_s=1, turns=1)
+        self.f.run("gone", status="failed", finished=iso(901), duration_s=1, error="x")
         rows = self.f.rows()
         self.assertEqual(len(rows), 3)
         text = "\n".join(rows)
-        self.assertIn("██████████  done in 1:32 · 14 turns · .droid-reviews/ok.md", text)
-        self.assertIn("██████████  failed after 0:03  droid reported: no auth", text)
-        self.assertIn("interrupted after 0:07", text)
+        self.assertRegex(text, r"\[ done in 1:32 · 14 turns +\]  14m ago · not triaged yet")
+        self.assertRegex(text, r"\[ failed after 0:03 +\]  just now · droid reported: no auth")
+        self.assertRegex(text, r"\[ interrupted after 0:07 +\]  just now")
+        self.assertEqual([sl.ago(s) for s in (0, 59, 60, 899, 3600, 7300)],
+                         ["just now", "just now", "1m ago", "14m ago", "1h ago", "2h ago"])
         raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "done in" in r)
-        self.assertIn(sl.BOLD + "done in 1:32", raw)   # loud: bold, in green
-        self.assertIn(sl.GREEN, raw)
+        self.assertEqual(self.filled(raw, sl.ON_GREEN), sl.BAR_W)   # the result fills the bar, in its colour
+        raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "failed after" in r)
+        self.assertEqual(self.filled(raw, sl.ON_RED), sl.BAR_W)
 
     def test_rechecks_say_their_round(self):
         self.f.run("a", round=2, log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", round=3, kind="feedback", model="gemini-3.8-flash", log=["[0m20s] turn 1 · Read y"])
         self.f.run("c", round=1, model="grok-4.7", log=["[0m20s] turn 1 · Read z"])
         text = "\n".join(self.f.rows())
-        self.assertRegex(text, r"droid · review 2 +· glm-5\.3-flash")
-        self.assertRegex(text, r"droid · feedback 3 +· gemini-3\.8-flash")
-        self.assertRegex(text, r"droid · review +· grok-4\.7")   # padded to the widest label
+        self.assertIn("droid-review 2 (glm-5.3-flash high)", text)
+        self.assertIn("droid-feedback 3 (gemini-3.8-flash high)", text)
+        self.assertRegex(text, r"droid-review \(grok-4\.7 high\) +\[")   # padded to the widest
 
     def test_rechecks_are_timed_against_rechecks(self):
         self.f.run("first", status="ok", finished=iso(9999), duration_s=300, turns=40)
@@ -169,22 +268,22 @@ class StatusLine(unittest.TestCase):
                    log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", model="glm-5.3-flash", started=iso(30), log=["[0m20s] turn 2 · Read x"])  # older run: no name
         text = "\n".join(self.f.rows())
-        self.assertIn("· GPT-6.1 Sol high", text)
+        self.assertIn("(GPT-6.1 Sol high)", text)
         self.assertIn("/ ~2:00", text)            # its estimate, found by id
-        self.assertIn("· glm-5.3-flash", text)    # no name recorded: the id
+        self.assertIn("(glm-5.3-flash high)", text)    # no name recorded: the id
 
     def test_feedback_runs_are_labelled(self):
         self.f.run("a", kind="feedback", log=["[0m20s] turn 2 · Read x"])
-        self.assertIn("droid · feedback · glm-5.3-flash", self.f.rows()[0])
+        self.assertIn("droid-feedback (glm-5.3-flash high)", self.f.rows()[0])
 
     def test_rows_line_up_across_models(self):
         self.f.run("a", started=iso(30), log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", started=iso(20), model="gemini-3.8-flash", effort=None,
                    log=["[0m20s] turn 2 · Read y"])
         a, b = self.f.rows()
-        self.assertEqual(a.rindex(" · ", 0, 40), b.rindex(" · ", 0, 40))   # the delimiters line up
+        self.assertIn("droid-review (gemini-3.8-flash)", b)   # no effort named: none shown
         # The bar starts at the same column in both rows.
-        col = lambda r: re.search(r"[▓░]", r).start()
+        col = lambda r: r.index("[")
         self.assertEqual(col(a), col(b))
 
     def test_rows_are_ordered_by_start(self):
@@ -209,22 +308,24 @@ class StatusLine(unittest.TestCase):
         os.utime(os.path.join(self.f.dir, "a.log"), (NOW - sl.STALE_S + 60,) * 2)
         self.assertIn("turn 2", self.f.rows()[0])   # still within the hour: running
 
-    def test_cut_never_leaves_a_link_open(self):
-        t = sl.GREEN + "ok " + sl.link("abc.md", "/x/abc.md") + " and more"
-        for columns in range(1, 20):
-            cut = sl.fit(t, columns)
-            opens = cut.count("\033]8;;file://")
-            closes = cut.count(sl.LINK_CLOSE)
-            self.assertGreaterEqual(closes, opens, "columns=%d leaves a link open" % columns)
-            if cut != t:   # cut short: ends closed and reset
-                self.assertTrue(cut.endswith(sl.LINK_CLOSE + sl.RESET))
+    def test_a_finished_review_says_what_came_of_it(self):
+        self.f.run("new", status="ok", finished=iso(120), duration_s=60, turns=5)
+        self.f.run("done", status="ok", finished=iso(600), duration_s=60, turns=5, started=iso(700),
+                   responses=[{"at": iso(500), "text": "first"}, {"at": iso(180), "text": "fixed 2;  rejected the race"}])
+        done, new = self.f.rows()
+        self.assertIn("]  2m ago · not triaged yet", new)
+        self.assertIn("]  10m ago · triaged 3m ago: fixed 2; rejected the race", done)   # the latest note, on one line
 
-    def test_fit_keeps_links_whole(self):
-        t = sl.GREEN + "ok " + sl.link("abc.md", "/x/abc.md") + " and more"
-        cut = sl.fit(t, 6)
-        self.assertEqual(sl.ANSI.sub("", cut), "ok ab…")
-        self.assertEqual(cut.count("\033]8;;file://"), 1)   # the link survives the cut
-        self.assertGreaterEqual(cut.count(sl.LINK_CLOSE), 1)   # and is closed
+    def test_a_review_waits_an_hour_to_be_triaged_then_a_quarter_after(self):
+        self.f.run("waiting", status="ok", finished=iso(3500), duration_s=60, turns=5)
+        self.f.run("forgotten", status="ok", finished=iso(3700), duration_s=60, turns=5)
+        self.f.run("just", status="ok", finished=iso(5000), duration_s=60, turns=5, responses=[{"at": iso(800), "text": "x"}])
+        self.f.run("long", status="ok", finished=iso(1000), duration_s=60, turns=5, responses=[{"at": iso(950), "text": "y"}])
+        self.f.run("failed", status="failed", finished=iso(1000), duration_s=60)   # nothing to triage
+        text = "\n".join(self.f.rows())
+        self.assertEqual(len(self.f.rows()), 2)
+        self.assertIn("58m ago · not triaged yet", text)
+        self.assertIn("triaged 13m ago: x", text)
 
     def test_half_written_or_foreign_json_is_ignored(self):
         with open(os.path.join(self.f.dir, "junk.json"), "w") as f:
@@ -257,7 +358,7 @@ class Command(unittest.TestCase):
                                 'import sys,json; print("MINE", json.load(sys.stdin)["workspace"]["current_dir"])')
             lines = r.stdout.splitlines()
             self.assertEqual(lines[0], "MINE " + f.root)
-            self.assertIn("droid · review · glm-5.3-flash", sl.ANSI.sub("", lines[1]))
+            self.assertIn("droid-review (glm-5.3-flash high)", sl.ANSI.sub("", lines[1]))
         finally:
             f.close()
 
