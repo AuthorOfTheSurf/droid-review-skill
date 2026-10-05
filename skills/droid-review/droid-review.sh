@@ -105,9 +105,9 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # Shortcuts: name → model. None pins an effort: each runs at droid's per-model
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
-# names (fable, opus, astra, sol, grok, qwen, kimi, deepseek) point at the newest
+# names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek) point at the newest
 # model in the family as of droid 0.232.0 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus astra sol grok qwen kimi deepseek"
+SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash" ;;
@@ -116,6 +116,7 @@ shortcut() {
     auto)   echo "auto" ;;
     fable)  echo "claude-fable-5.1" ;;
     opus)   echo "claude-opus-5-5" ;;
+    sonnet) echo "claude-sonnet-5-5" ;;
     astra)  echo "gpt-6-astra" ;;
     sol)    echo "gpt-6.1-sol" ;;
     grok)   echo "grok-4.7" ;;

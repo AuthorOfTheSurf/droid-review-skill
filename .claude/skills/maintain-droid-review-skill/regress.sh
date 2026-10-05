@@ -123,13 +123,15 @@ check "plain ask: droid asked nothing more than a bare run" sh -c "[ '$RC' = 0 ]
 # A model list with a name that is no model is a mistake, said loudly: every
 # wrong name, what it could have meant, and no run. Commas alone are not a list.
 : > "$t/calls"
-run "$t/o2h" --base master "glm,sonnet,nonsuch look at x"
-check "mixed model list: exit 2, names each" sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'sonnet' in glm,sonnet,nonsuch (did you mean .*claude-sonnet\" '$t/o2h.err' && grep -q \"^no model 'nonsuch' in glm,sonnet,nonsuch\$\" '$t/o2h.err' && grep -q '^shortcuts: glm ' '$t/o2h.err'"
-run "$t/o2i" --base master --models glm,sonnet
-check "mixed --models: the same"           sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'sonnet' in glm,sonnet (did you mean\" '$t/o2i.err'"
+run "$t/o2h" --base master "glm,haiku,nonsuch look at x"
+check "mixed model list: exit 2, names each" sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'haiku' in glm,haiku,nonsuch (did you mean .*claude-haiku\" '$t/o2h.err' && grep -q \"^no model 'nonsuch' in glm,haiku,nonsuch\$\" '$t/o2h.err' && grep -q '^shortcuts: glm ' '$t/o2h.err'"
+run "$t/o2i" --base master --models glm,haiku
+check "mixed --models: the same"           sh -c "[ '$RC' = 2 ] && grep -q \"^no model 'haiku' in glm,haiku (did you mean\" '$t/o2i.err'"
 check "neither started droid"              sh -c "! grep -q stream-json '$t/calls'"
 run "$t/o2j" --base master "first,second, then the rest"
 check "commas with no model: an ask"       sh -c "[ '$RC' = 0 ] && grep -q '^- asked: first,second, then the rest' \"\$(sed -n 1p '$t/o2j')\""
+run "$t/o2k" --base master "sonnet the auth changes"
+check "sonnet shortcut: Sonnet reviews"    sh -c "[ '$RC' = 0 ] && grep -q '^- model: claude-sonnet-5-5 ' \"\$(sed -n 1p '$t/o2k')\""
 
 # 3. Fan-out.
 : > "$t/calls"
