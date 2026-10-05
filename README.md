@@ -242,11 +242,11 @@ uncommitted then: none · now: 2 files
 
 changed since the review: 3 files
   README.md                          committed
-  skills/droid-review/statusline.py  committed, uncommitted
+  skills/droid-review/reviews.py     committed, uncommitted
   notes.txt                          uncommitted (untracked)
 
 cited in the review: 2
-  skills/droid-review/statusline.py:47  changed on this branch · changed since (committed)
+  skills/droid-review/reviews.py:47     changed on this branch · changed since (committed)
   skills/droid-review/runs.py:12        not changed on this branch · unchanged, now line 14
 ```
 
@@ -272,13 +272,12 @@ look, not a verdict: a branch can break old code without touching it.
 ### Live status in Claude Code (optional)
 
 Reviews usually run in the background while you keep working. To see them as
-they go, add rows to Claude Code's status line, one per running review, under
-the status line you already have:
+they go, show a row per running review in a band above the prompt:
 
 ```
-⠹ droid-review · GLM-5.3-Flash               [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
-⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50s · turn 9 · Execute npm test
-✓ droid-feedback · GPT-6 Luna max            [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
+⠹ droid-review · GLM-5.3-Flash                ⠹ 25s / ~40s                 reading files · turn 3 · Read src/auth.ts
+⠹ droid-review · Gemini 3.8 Flash (round 2)   ⠹ 4m 12s / ~1m 30s           running checks for 50s · turn 9 · Execute npm test
+✓ droid-feedback · GPT-6 Luna max             ✓ 2m 14s · 21 turns          awaiting triage for 3m...
 ```
 
 Each row opens with the command that ran, then the model, with the effort
@@ -289,7 +288,7 @@ of that review; the review file's title and metadata carry the round too.
 against the time after `~`: the median of that model's earlier finished runs of
 the same kind in the repo (review or feedback, first round or re-check). The
 cell at the edge of the fill shades in gradually, so the bar moves at every
-repaint. It reaches four fifths at the estimate and stops there, still green,
+tick. It reaches four fifths at the estimate and stops there, still blue,
 however late the run is: the open fifth is the part nobody knows. Only a
 finished run fills the bar. Until there is any history a block drifts across
 it. When the run ends, the same bar holds the result. With nothing to show it
@@ -317,29 +316,27 @@ that has returned does not. Either way the row then says for how long:
 without the `cd … &&` a command opens with.
 
 **A finished row** stays a while, and says what has come of the review:
-`awaiting triage for 3m`, then the note your agent left when it triaged it
+`awaiting triage for 3m...`, then the note your agent left when it triaged it
 (`triaged 2m ago: fixed 2; rejected the race as a false positive`). A run that
 failed or was interrupted says how long ago. The row goes fifteen minutes
 after the run ended, or after that note if it came later; a review still
 waiting to be triaged stays an hour.
 
-It is one script, `skills/droid-review/statusline.py`, set in
-`~/.claude/settings.json`. Put the status line command you already have, if
-any, after `--`: it runs first, on the same input, and these rows go under it.
-If that command has a pipe, `&&` or `;` in it, give it as one quoted string
-(`-- 'mine.sh | cut -c1-80'`): unquoted, the shell would send these rows into
-the pipe along with yours.
+**To turn it on:** the band is a Claude Code mod, so it needs a Claude Code
+that loads mods (an early-access API that may change between releases). Link
+`skills/droid-reviews` beside the skills and restart `claude`. There is nothing
+to set, and your status line is left as it is. The band redraws only when a row
+changes, and shows in the desktop app as well as the terminal.
 
-```json
-"statusLine": {
-  "type": "command",
-  "command": "python3 /path/to/droid-review-skill/skills/droid-review/statusline.py -- <your current statusLine command>",
-  "refreshInterval": 1
-}
+```bash
+ln -s "$PWD/skills/droid-reviews" ~/.claude/skills/
 ```
 
-`refreshInterval` re-runs the line every second (the lowest Claude Code takes), so the elapsed time moves
-while the session is idle. To undo, put your old command back.
+To undo, delete the link.
+
+If you set up the earlier status line script (`skills/droid-review/statusline.py`
+in `~/.claude/settings.json`), it is gone: put the status line command you had
+after its `--` back as your `statusLine` command, or remove the setting.
 
 ### Maintaining it
 
