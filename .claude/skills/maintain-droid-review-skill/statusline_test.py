@@ -86,7 +86,7 @@ class StatusLine(unittest.TestCase):
         self.f.run("a", log=["[0m01s] started glm-5.3-flash (reasoning high) session s",
                              "[0m20s] turn 3 · Execute git diff --stat"])
         [row] = self.f.rows()
-        self.assertIn("droid-review (glm-5.3-flash high)", row)
+        self.assertIn("droid-review · glm-5.3-flash high", row)
         self.assertIn("0:25", row)
         self.assertIn("turn 3 · Execute git diff --stat", row)
         self.assertNotIn("/ ~", row)   # no history: no estimate
@@ -123,25 +123,38 @@ class StatusLine(unittest.TestCase):
         long = sl.ANSI.sub("", sl.bar("x" * 99, sl.ON_GREEN))
         self.assertEqual(len(long), sl.BAR_W + 2)   # never wider, so rows stay lined up
 
-    def test_bar_fills_with_time_and_turns_amber_past_the_estimate(self):
+    def test_bar_fills_with_time_up_to_the_stop(self):
         for i, d in enumerate((40, 40)):
             self.f.run("ok%d" % i, status="ok", finished=iso(9999), duration_s=d, turns=5)
         self.f.run("a", started=iso(20), log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", started=iso(90), log=["[0m20s] turn 2 · Read x"])
         late, early = sl.rows(self.f.dir, NOW, 200)
-        self.assertEqual(self.filled(early, sl.ON_GREEN), int(sl.BAR_W * 0.4))   # half the estimate
-        self.assertEqual(self.filled(late, sl.ON_GREEN), 0)                        # past it: amber
+        self.assertEqual(self.filled(early, sl.ON_GREEN), round(sl.BAR_W * 0.8) // 2)   # half the estimate
+        self.assertEqual(self.filled(late, sl.ON_GREEN), round(sl.BAR_W * 0.8))          # past it: the stop
         self.assertIn("[ 1:30 / ~0:40", sl.ANSI.sub("", late))
 
     def test_a_running_bar_stops_at_four_fifths_however_late(self):
-        self.assertEqual(sl.progress(20, 40), 0.4)
-        self.assertEqual(sl.progress(40, 40), 0.8)
-        self.assertEqual(sl.progress(40000, 40), 0.8)
+        self.assertEqual(sl.progress(20, 40), sl.RUNNING_FULL / 2)
+        self.assertEqual(sl.progress(40, 40), sl.RUNNING_FULL)
+        self.assertEqual(sl.progress(40000, 40), sl.RUNNING_FULL)
         self.f.run("ok", status="ok", finished=iso(9999), duration_s=40, turns=5)
         self.f.run("a", started=iso(40000), log=["[0m20s] turn 2 · Read x"])
         [row] = sl.rows(self.f.dir, NOW, 200)
-        self.assertEqual(self.filled(row, sl.ON_AMBER), int(sl.BAR_W * 0.8))   # a thousand times over
-        self.assertEqual(self.filled(row, sl.ON_EMPTY), sl.BAR_W - int(sl.BAR_W * 0.8))
+        stop = round(sl.BAR_W * 0.8)   # a whole cell: the stop is a clean edge, no half-shaded cell left over
+        self.assertEqual(self.filled(row, sl.ON_GREEN), stop)   # a thousand times over: still green, still open
+        self.assertEqual(self.filled(row, sl.ON_EMPTY), sl.BAR_W - stop)
+
+    def test_the_edge_cell_shades_in_between_whole_cells(self):
+        # 10.0, 10.5 and 10.8 cells: ten full either way, the eleventh empty, half-way, nearly there.
+        edges = []
+        for cells in (10.0, 10.5, 10.8):
+            b = sl.bar("x", sl.ON_GREEN, cells / sl.BAR_W)
+            self.assertEqual(self.filled(b, sl.ON_GREEN), 10)
+            edges.append(re.findall(r"\033\[48;[0-9;]*m", b)[1])
+        self.assertEqual(edges[0], sl.ON_EMPTY)
+        self.assertEqual(edges[1], sl.mix(sl.ON_EMPTY, sl.ON_GREEN, 0.5 ** 0.6))   # ahead of half: seen sooner
+        self.assertEqual(len(set(edges)), 3)
+        self.assertEqual(sl.mix(sl.ON_EMPTY, sl.ON_GREEN, 1), sl.ON_GREEN)
 
     def test_no_history_a_block_drifts_across_the_bar(self):
         self.f.run("a", log=["[0m20s] turn 2 · Read x"])
@@ -203,6 +216,12 @@ class StatusLine(unittest.TestCase):
         self.assertIn(sl.INK + "reading files" + sl.RESET, raw)   # bright, not grey
         self.assertIn("]  reading files · turn 3 · Execute git diff --stat", sl.ANSI.sub("", raw))
 
+    def test_the_spinner_turns_a_frame_each_repaint(self):
+        # Stepping by the second, a 2-second repaint only ever showed two of the four.
+        self.f.run("a", log=["[0m20s] turn 2 · Read x"])
+        frames = [sl.rows(self.f.dir, NOW + i * sl.REPAINT_S, 200)[0] for i in range(4)]
+        self.assertEqual(len({sl.ANSI.sub("", r)[0] for r in frames}), 4)
+
     def test_a_quiet_row_says_for_how_long(self):
         log = ["[0m10s] turn 2 · Read a", "[0m20s] turn 3 · Execute cd /repo && npm test"]
         self.f.run("a", log=log)
@@ -232,12 +251,12 @@ class StatusLine(unittest.TestCase):
         rows = self.f.rows()
         self.assertEqual(len(rows), 3)
         text = "\n".join(rows)
-        self.assertRegex(text, r"\[ done in 1:32 · 14 turns +\]  14m ago · not triaged yet")
+        self.assertRegex(text, r"\[ ✓ 1:32 · 14 turns +\]  14m ago · awaiting triage")
         self.assertRegex(text, r"\[ failed after 0:03 +\]  just now · droid reported: no auth")
         self.assertRegex(text, r"\[ interrupted after 0:07 +\]  just now")
         self.assertEqual([sl.ago(s) for s in (0, 59, 60, 899, 3600, 7300)],
                          ["just now", "just now", "1m ago", "14m ago", "1h ago", "2h ago"])
-        raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "done in" in r)
+        raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "[ ✓" in sl.ANSI.sub("", r))
         self.assertEqual(self.filled(raw, sl.ON_GREEN), sl.BAR_W)   # the result fills the bar, in its colour
         raw = next(r for r in sl.rows(self.f.dir, NOW, 200) if "failed after" in r)
         self.assertEqual(self.filled(raw, sl.ON_RED), sl.BAR_W)
@@ -247,9 +266,13 @@ class StatusLine(unittest.TestCase):
         self.f.run("b", round=3, kind="feedback", model="gemini-3.8-flash", log=["[0m20s] turn 1 · Read y"])
         self.f.run("c", round=1, model="grok-4.7", log=["[0m20s] turn 1 · Read z"])
         text = "\n".join(self.f.rows())
-        self.assertIn("droid-review 2 (glm-5.3-flash high)", text)
-        self.assertIn("droid-feedback 3 (gemini-3.8-flash high)", text)
-        self.assertRegex(text, r"droid-review \(grok-4\.7 high\) +\[")   # padded to the widest
+        self.assertIn("droid-review round 2 · glm-5.3-flash high", text)
+        self.assertIn("droid-feedback round 3 · gemini-3.8-flash high", text)
+        raw = "\n".join(sl.rows(self.f.dir, NOW, 200))
+        self.assertIn(sl.LABEL + "droid-review" + sl.GREY + " round 2 · " + sl.RESET + sl.MODEL + "glm-5.3-flash"
+                      + sl.GREY + " high" + sl.RESET, raw)   # white command, grey asides, the model in its colour
+        self.assertIn(sl.LABEL + "droid-review" + sl.GREY + " · " + sl.RESET + sl.MODEL + "grok-4.7", raw)   # a first round
+        self.assertRegex(text, r"droid-review · grok-4\.7 high +\[")   # padded to the widest
 
     def test_rechecks_are_timed_against_rechecks(self):
         self.f.run("first", status="ok", finished=iso(9999), duration_s=300, turns=40)
@@ -268,20 +291,23 @@ class StatusLine(unittest.TestCase):
                    log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", model="glm-5.3-flash", started=iso(30), log=["[0m20s] turn 2 · Read x"])  # older run: no name
         text = "\n".join(self.f.rows())
-        self.assertIn("(GPT-6.1 Sol high)", text)
+        self.assertIn("· GPT-6.1 Sol high", text)
         self.assertIn("/ ~2:00", text)            # its estimate, found by id
-        self.assertIn("(glm-5.3-flash high)", text)    # no name recorded: the id
+        self.assertIn("· glm-5.3-flash high", text)    # no name recorded: the id
 
     def test_feedback_runs_are_labelled(self):
         self.f.run("a", kind="feedback", log=["[0m20s] turn 2 · Read x"])
-        self.assertIn("droid-feedback (glm-5.3-flash high)", self.f.rows()[0])
+        self.assertIn("droid-feedback · glm-5.3-flash high", self.f.rows()[0])
 
     def test_rows_line_up_across_models(self):
         self.f.run("a", started=iso(30), log=["[0m20s] turn 2 · Read x"])
         self.f.run("b", started=iso(20), model="gemini-3.8-flash", effort=None,
                    log=["[0m20s] turn 2 · Read y"])
         a, b = self.f.rows()
-        self.assertIn("droid-review (gemini-3.8-flash)", b)   # no effort named: none shown
+        self.assertRegex(b, r"droid-review · gemini-3\.8-flash +\[")   # no effort named: none shown
+        raw = sl.rows(self.f.dir, NOW, 200)[1]
+        self.assertIn(sl.MODEL + "gemini-3.8-flash" + sl.RESET, raw)       # and no empty grey after the name
+        self.assertEqual(sl.MODEL, "\033[38;2;137;180;250m")              # periwinkle
         # The bar starts at the same column in both rows.
         col = lambda r: r.index("[")
         self.assertEqual(col(a), col(b))
@@ -313,7 +339,7 @@ class StatusLine(unittest.TestCase):
         self.f.run("done", status="ok", finished=iso(600), duration_s=60, turns=5, started=iso(700),
                    responses=[{"at": iso(500), "text": "first"}, {"at": iso(180), "text": "fixed 2;  rejected the race"}])
         done, new = self.f.rows()
-        self.assertIn("]  2m ago · not triaged yet", new)
+        self.assertIn("]  2m ago · awaiting triage", new)
         self.assertIn("]  10m ago · triaged 3m ago: fixed 2; rejected the race", done)   # the latest note, on one line
 
     def test_a_review_waits_an_hour_to_be_triaged_then_a_quarter_after(self):
@@ -324,7 +350,7 @@ class StatusLine(unittest.TestCase):
         self.f.run("failed", status="failed", finished=iso(1000), duration_s=60)   # nothing to triage
         text = "\n".join(self.f.rows())
         self.assertEqual(len(self.f.rows()), 2)
-        self.assertIn("58m ago · not triaged yet", text)
+        self.assertIn("58m ago · awaiting triage", text)
         self.assertIn("triaged 13m ago: x", text)
 
     def test_half_written_or_foreign_json_is_ignored(self):
@@ -358,7 +384,7 @@ class Command(unittest.TestCase):
                                 'import sys,json; print("MINE", json.load(sys.stdin)["workspace"]["current_dir"])')
             lines = r.stdout.splitlines()
             self.assertEqual(lines[0], "MINE " + f.root)
-            self.assertIn("droid-review (glm-5.3-flash high)", sl.ANSI.sub("", lines[1]))
+            self.assertIn("droid-review · glm-5.3-flash high", sl.ANSI.sub("", lines[1]))
         finally:
             f.close()
 

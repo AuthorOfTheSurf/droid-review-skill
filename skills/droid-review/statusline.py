@@ -2,22 +2,24 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ◐ droid-review (GLM-5.3-Flash)        [ 0:25 / ~0:40               ]  reading files · turn 3 · Read src/auth.ts
-    ◐ droid-review 2 (Gemini 3.8 Flash)   [ 4:12 / ~1:30               ]  running checks for 0:50 · turn 9 · Execute npm test
-    ✓ droid-feedback (GPT-6 Luna max)     [ done in 2:14 · 21 turns    ]  3m ago · not triaged yet
+    ⠹ droid-review · GLM-5.3-Flash             [ 0:25 / ~0:40               ]  reading files · turn 3 · Read src/auth.ts
+    ⠹ droid-review round 2 · Gemini 3.8 Flash  [ 4:12 / ~1:30               ]  running checks for 0:50 · turn 9 · Execute npm test
+    ✓ droid-feedback · GPT-6 Luna max          [ ✓ 2:14 · 21 turns          ]  3m ago · awaiting triage
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the end of its .log (the turn and the
-tool calls droid has made). "droid-review 2" is a re-check (--session), the
-second round; the brackets hold the model, and the effort if one was named.
+tool calls droid has made). "round 2" is a re-check (--session), the
+second round; after the dot comes the model, and the effort if one was named.
 
 The bar is one piece: its text sits inside it and its ground fills from the
 left as time passes, measured against the median time of this model's
 finished runs of the same kind (review or feedback, first round or re-check)
-in the same folder. It reaches four fifths at that estimate and stops there,
-turning amber once the run is past it: how much is left is not known, and
-the open fifth says so. Only a finished run fills the bar: the same bar then
-holds the result. Without any history a block drifts across it instead.
+in the same folder. The cell at the edge of the fill shades in gradually, so
+the bar moves at every repaint. It reaches four fifths at that estimate and
+stops there, still green, however late the run is: how much is left is not
+known, and the open fifth says so. Only a finished run fills the bar: the
+same bar then holds the result. Without any history a block drifts across it
+instead.
 
 After the bar comes what droid is doing, worked out from the kinds of tool it
 called in its last three turns, not from what the calls said: reading files
@@ -31,7 +33,7 @@ checks" and one that has returned does not. Either way the row then says for
 how long.
 
 A finished run keeps its row a while: its result, how long ago it ended, and
-what has come of it — "not triaged yet", then the note the triaging agent
+what has come of it — "awaiting triage", then the note the triaging agent
 left (droid-review.sh --note). The row goes fifteen minutes after it ended,
 or after that note if it came later; one still not triaged stays an hour.
 
@@ -43,7 +45,7 @@ after the `--`, so it prints first and these rows go under it:
     "statusLine": {
       "type": "command",
       "command": "python3 /path/to/droid-review-skill/skills/droid-review/statusline.py -- python3 ~/.claude/my-statusline.py",
-      "refreshInterval": 2
+      "refreshInterval": 1
     }
 
 refreshInterval keeps the elapsed time moving while the session is idle (a
@@ -68,7 +70,10 @@ from runs import (AMBER, BOLD, GREEN, GREY, RED, RESET, STALE_S, TEAL,  # noqa: 
 
 SHOW_FINISHED_S = 900     # a finished row stays this long after the last thing that happened to it
 SHOW_UNTRIAGED_S = 3600   # and one nobody has said anything about yet, this long
-SPIN = "◐◓◑◒"
+# Four of a braille cell's eight dots lit, the four turning round the cell a
+# dot at a time (the ring is dots 1 4 5 6 8 7 3 2, clockwise from top left).
+SPIN = "⠹⢸⣰⣤⣆⡇⠏⠛"
+REPAINT_S = 1   # the refreshInterval the README sets (the lowest Claude Code takes): a spinner frame per repaint
 # Escapes that take no width: colours.
 ANSI = re.compile(r"\033\[[0-9;]*m")
 
@@ -124,23 +129,39 @@ ON_GREEN, ON_AMBER, ON_RED, ON_TEAL, ON_EMPTY = (
     "\033[48;2;32;110;58m", "\033[48;2;140;98;20m", "\033[48;2;150;44;40m",
     "\033[48;2;30;104;96m", "\033[48;2;46;46;46m")
 INK = "\033[1;97m"   # bold bright white: Claude Code dims a status line's default colour
+LABEL = "\033[97m"   # the same white, not bold: what a row leads with
+# The model's name: periwinkle. One colour for every model, and none of the
+# colours that say how a run went (green, amber, red) or that it is alive (teal).
+MODEL = "\033[38;2;137;180;250m"
+
+
+def mix(a, b, t):
+    """The ground t of the way from ground a to ground b (0 is a, 1 is b)."""
+    ca, cb = ([int(x) for x in g[7:-1].split(";")] for g in (a, b))
+    return "\033[48;2;%d;%d;%dm" % tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
 
 
 def bar(text, ground, fraction=1.0, now=None):
     """One bar with its text inside: [ 0:25 / ~0:40      ], the first
-    fraction of its cells on the ground colour. fraction None is a run with
-    nothing to measure against: a block drifts across instead."""
+    fraction of its cells on the ground colour. The cell at the edge of the
+    fill shades in as it is covered (a little ahead, to be seen), so the bar
+    moves at every repaint and not only when a whole cell fills (on a
+    four-minute estimate, once in eleven seconds). fraction None is a run
+    with nothing to measure against: a block drifts across instead."""
     cells = (" " + text).ljust(BAR_W)[:BAR_W]
     if fraction is None:
         at = int(now or 0) % (BAR_W - 3)
         parts = ((ON_EMPTY, cells[:at]), (ground, cells[at:at + 4]), (ON_EMPTY, cells[at + 4:]))
     else:
-        n = max(0, min(BAR_W, int(BAR_W * fraction)))
-        parts = ((ground, cells[:n]), (ON_EMPTY, cells[n:]))
+        full = max(0.0, min(float(BAR_W), BAR_W * fraction))
+        n = int(full)
+        # ** 0.6: a straight mix keeps the first half of a cell too close to empty to see.
+        parts = ((ground, cells[:n]), (mix(ON_EMPTY, ground, (full - n) ** 0.6), cells[n:n + 1]),
+                 (ON_EMPTY, cells[n + 1:]))
     return GREY + "[" + RESET + "".join(g + INK + c + RESET for g, c in parts if c) + GREY + "]" + RESET
 
 
-RUNNING_FULL = 0.8
+RUNNING_FULL = round(0.8 * BAR_W) / BAR_W   # four fifths, on a whole cell: the stop is a clean edge
 
 
 def progress(elapsed, estimate):
@@ -241,7 +262,7 @@ def triage(m, now):
     Returns (text, seconds since the note or None)."""
     notes = [n for n in m.get("responses") or [] if isinstance(n, dict) and n.get("text")]
     if not notes:
-        return AMBER + "not triaged yet" + RESET, None
+        return AMBER + "awaiting triage" + RESET, None
     noted = since(notes[-1].get("at"), now)
     return (GREEN + "triaged" + RESET + GREY + (" " + ago(noted) if noted is not None else "") + ": "
             + " ".join(str(notes[-1]["text"]).split()) + RESET), noted
@@ -284,20 +305,25 @@ def rows(folder, now, columns):
     if not shown:
         return []
     shown.sort(key=lambda r: r.get("started") or "")
-    # "droid-review 2 (Gemini 3.8 Flash)": the command that ran, the round if
-    # it is a re-check, and in the brackets droid's name for the model (else
-    # its id) with the effort when one was named. In the terminal's own
-    # colour, padded to the widest shown so the bars line up.
-    def who_of(m):
+    # "droid-review round 2 · Gemini 3.8 Flash max": the command that ran,
+    # which round on the same review it is if not the first, then droid's
+    # name for the model (else its id) and the effort when one was named.
+    # The command leads in plain bright text (Claude Code would dim the
+    # default colour to grey), the model has the one colour in the label,
+    # and what qualifies them (the round, the effort) is grey. Padded to the
+    # widest so the bars line up.
+    def who_of(m, paint=False):
         label = "droid-feedback" if m.get("kind") == "feedback" else "droid-review"
-        if (m.get("round") or 1) > 1:
-            label += " %d" % m["round"]
+        again = " round %d" % m["round"] if (m.get("round") or 1) > 1 else ""
         model = m.get("model_name") or m.get("model") or "?"
-        return "%s (%s%s)" % (label, model, " " + m["effort"] if m.get("effort") else "")
+        effort = " " + m["effort"] if m.get("effort") else ""
+        if not paint:
+            return label + again + " · " + model + effort
+        return LABEL + label + GREY + again + " · " + RESET + MODEL + model + (GREY + effort if effort else "") + RESET
     width = max(len(who_of(m)) for m in shown)
     for m in shown:
         status = m["_status"]
-        who = who_of(m).ljust(width)
+        who = who_of(m, paint=True) + " " * (width - len(who_of(m)))
         if status == "running":
             if hist is None:
                 hist = history(folder, runs)
@@ -313,11 +339,10 @@ def rows(folder, now, columns):
             if quiet >= QUIET_S and now_doing != "starting":
                 doing = "for %s%s" % (clock(quiet), " · " + doing if doing else "")   # thinking for, running checks for
             if estimate:
-                meter = bar("%s / ~%s" % (clock(elapsed), clock(estimate)),
-                            ON_AMBER if elapsed > estimate else ON_GREEN, progress(elapsed, estimate))
+                meter = bar("%s / ~%s" % (clock(elapsed), clock(estimate)), ON_GREEN, progress(elapsed, estimate))
             else:
                 meter = bar(clock(elapsed), ON_TEAL, None, now)
-            line = "%s %s  %s  %s%s" % (TEAL + SPIN[int(now) % len(SPIN)] + RESET, who, meter,
+            line = "%s %s  %s  %s%s" % (MODEL + SPIN[int(now / REPAINT_S) % len(SPIN)] + RESET, who, meter,
                                         INK + now_doing + RESET,
                                         GREY + (" " if doing.startswith("for ") else " · ") + doing + RESET if doing else "")
         else:
@@ -326,7 +351,7 @@ def rows(folder, now, columns):
             # A finished run says so in the same bar, full, in its result's colour.
             if status == "ok":
                 line = "%s %s  %s  %s" % (
-                    GREEN + BOLD + "✓" + RESET, who, bar("done in %s · %s turns" % (took, m.get("turns")), ON_GREEN),
+                    GREEN + BOLD + "✓" + RESET, who, bar("✓ %s · %s turns" % (took, m.get("turns")), ON_GREEN),
                     GREY + when + " · " + RESET + m["_triage"])
             elif status == "failed":
                 err = " ".join(str(m.get("error") or "").split())

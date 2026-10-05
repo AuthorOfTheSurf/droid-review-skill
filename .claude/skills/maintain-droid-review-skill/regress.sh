@@ -260,13 +260,13 @@ for _ in $(seq 1 60); do
   live="$(sl)"
   case "$live" in *"turn 1 · Read"*) break ;; esac
 done
-check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[◐◓◑◒] droid-review (')" = 2 ]
+check "status line: a row per running model" [ "$(printf '%s\n' "$live" | grep -c '^[⠹⢸⣰⣤⣆⡇⠏⠛] droid-review · ')" = 2 ]
 check "status line: shows the turn"        sh -c "printf '%s' \"\$1\" | grep -q 'turn 1 · Read README.md'" _ "$live"
 wait
 after="$(sl)"
 # (droid-feedback finished moments ago too, so its row is there as well.)
-check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid-review (Gemini 3.8 Flash) .* done in ' && printf '%s' \"\$1\" | grep -q '^✓ droid-review (GLM-5.3-Flash) .* done in '" _ "$after"
-check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[◐◓◑◒]'" _ "$after"
+check "status line: then both results"     sh -c "printf '%s' \"\$1\" | grep -q '^✓ droid-review · Gemini 3.8 Flash .* \[ ✓ ' && printf '%s' \"\$1\" | grep -q '^✓ droid-review · GLM-5.3-Flash .* \[ ✓ '" _ "$after"
+check "status line: nothing still running" sh -c "! printf '%s' \"\$1\" | grep -q '^[⠹⢸⣰⣤⣆⡇⠏⠛]'" _ "$after"
 check "status line: unit tests"            python3 "$here/statusline_test.py"
 check "history: unit tests"                python3 "$here/reviews_test.py"
 
