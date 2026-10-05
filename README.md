@@ -275,14 +275,14 @@ they go, add rows to Claude Code's status line, one per running review, under
 the status line you already have:
 
 ```
-⠹ droid-review · GLM-5.3-Flash             [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
-⠹ droid-review round 2 · Gemini 3.8 Flash  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
-✓ droid-feedback · GPT-6 Luna max          [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
+⠹ droid-review · GLM-5.3-Flash               [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
+⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+✓ droid-feedback · GPT-6 Luna max            [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 ```
 
 Each row opens with the command that ran, then the model, with the effort
-when you named one. "round 2" is a re-check (`--session`), the second round of
-that review; the review file's title and metadata carry the round too.
+when you named one. "(round 2)" is a re-check (`--session`), the second round
+of that review; the review file's title and metadata carry the round too.
 
 **The bar** is one piece, with its text inside. Its ground fills from the left
 against the time after `~`: the median of that model's earlier finished runs of
@@ -305,7 +305,7 @@ droid called in its last three turns, not from what the calls said:
 | `running checks` | any other command (`running commands` in a feedback run) |
 | `researching` | WebSearch, FetchUrl |
 | `planning` | TodoWrite |
-| `working` | any other tool |
+| `working` | any other tool (Skill and ToolSearch aside: those are droid setting up, and are not counted) |
 | `thinking` | nothing logged for 30 seconds, and no command still out |
 
 droid logs its tool calls, not its reasoning or the writing of its answer, so

@@ -2,14 +2,14 @@
 """droid reviews in Claude Code's status line: one row per review running in
 this repo, under whatever status line you already have.
 
-    ⠹ droid-review · GLM-5.3-Flash             [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
-    ⠹ droid-review round 2 · Gemini 3.8 Flash  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
-    ✓ droid-feedback · GPT-6 Luna max          [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
+    ⠹ droid-review · GLM-5.3-Flash               [ ⠹ 25s / ~40s               ]  reading files · turn 3 · Read src/auth.ts
+    ⠹ droid-review · Gemini 3.8 Flash (round 2)  [ ⠹ 4m 12s / ~1m 30s         ]  running checks for 50 seconds · turn 9 · Execute npm test
+    ✓ droid-feedback · GPT-6 Luna max            [ ✓ 2m 14s · 21 turns        ]  awaiting triage for 3m
 
 It reads what droid-review.sh writes to .droid-reviews/: each run's .json
 (status, model, round, start, pid) and the end of its .log (the turn and the
-tool calls droid has made). "round 2" is a re-check (--session), the
-second round; after the dot comes the model, and the effort if one was named.
+tool calls droid has made). After the dot comes the model, with the effort
+if one was named; "(round 2)" is a re-check (--session), the second round.
 
 The bar is one piece: its text sits inside it and its ground fills from the
 left as time passes, measured against the median time of this model's
@@ -284,7 +284,9 @@ def triage(m, now):
     or None)."""
     notes = [n for n in m.get("responses") or [] if isinstance(n, dict) and n.get("text")]
     if not notes:
-        waited = int(m.get("_ago") or 0) // 60
+        # A run with neither a finish time nor a log has no known age (infinite):
+        # it is not shown, but it is asked, and must not take the other rows down.
+        waited = int(m["_ago"]) // 60 if m.get("_ago") not in (None, float("inf")) else 0
         return AMBER + "awaiting triage" + (" for %s" % short(waited * 60) if waited else "") + RESET, None
     noted = since(notes[-1].get("at"), now)
     return (GREEN + "triaged" + RESET + GREY + (" " + ago(noted) if noted is not None else "") + ": "
@@ -328,21 +330,21 @@ def rows(folder, now, columns):
     if not shown:
         return []
     shown.sort(key=lambda r: r.get("started") or "")
-    # "droid-review round 2 · Gemini 3.8 Flash max": the command that ran,
-    # which round on the same review it is if not the first, then droid's
-    # name for the model (else its id) and the effort when one was named.
-    # The command leads in plain bright text (Claude Code would dim the
-    # default colour to grey), the model has the one colour in the label,
-    # and what qualifies them (the round, the effort) is grey. Padded to the
-    # widest so the bars line up.
+    # "droid-review · Gemini 3.8 Flash max (round 2)": the command that ran,
+    # droid's name for the model (else its id) with the effort when one was
+    # named, and which round on the same review it is if not the first. The
+    # command leads in plain bright text (Claude Code would dim the default
+    # colour to grey), the model has the one colour in the label, and what
+    # qualifies them (the effort, the round) is grey. Padded to the widest so
+    # the bars line up.
     def who_of(m, paint=False):
         label = "droid-feedback" if m.get("kind") == "feedback" else "droid-review"
-        again = " round %d" % m["round"] if (m.get("round") or 1) > 1 else ""
         model = m.get("model_name") or m.get("model") or "?"
-        effort = " " + m["effort"] if m.get("effort") else ""
+        aside = (" " + m["effort"] if m.get("effort") else "") + (
+            " (round %d)" % m["round"] if (m.get("round") or 1) > 1 else "")
         if not paint:
-            return label + again + " · " + model + effort
-        return LABEL + label + GREY + again + " · " + RESET + MODEL + model + (GREY + effort if effort else "") + RESET
+            return label + " · " + model + aside
+        return LABEL + label + GREY + " · " + RESET + MODEL + model + (GREY + aside if aside else "") + RESET
     width = max(len(who_of(m)) for m in shown)
     for m in shown:
         status = m["_status"]

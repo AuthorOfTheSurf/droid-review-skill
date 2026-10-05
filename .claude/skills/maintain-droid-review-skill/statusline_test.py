@@ -280,11 +280,11 @@ class StatusLine(unittest.TestCase):
         self.f.run("b", round=3, kind="feedback", model="gemini-3.8-flash", log=["[0m20s] turn 1 · Read y"])
         self.f.run("c", round=1, model="grok-4.7", log=["[0m20s] turn 1 · Read z"])
         text = "\n".join(self.f.rows())
-        self.assertIn("droid-review round 2 · glm-5.3-flash high", text)
-        self.assertIn("droid-feedback round 3 · gemini-3.8-flash high", text)
+        self.assertIn("droid-review · glm-5.3-flash high (round 2)", text)
+        self.assertIn("droid-feedback · gemini-3.8-flash high (round 3)", text)
         raw = "\n".join(sl.rows(self.f.dir, NOW, 200))
-        self.assertIn(sl.LABEL + "droid-review" + sl.GREY + " round 2 · " + sl.RESET + sl.MODEL + "glm-5.3-flash"
-                      + sl.GREY + " high" + sl.RESET, raw)   # white command, grey asides, the model in its colour
+        self.assertIn(sl.LABEL + "droid-review" + sl.GREY + " · " + sl.RESET + sl.MODEL + "glm-5.3-flash"
+                      + sl.GREY + " high (round 2)" + sl.RESET, raw)   # white command, the model in its colour, grey asides
         self.assertIn(sl.LABEL + "droid-review" + sl.GREY + " · " + sl.RESET + sl.MODEL + "grok-4.7", raw)   # a first round
         self.assertRegex(text, r"droid-review · grok-4\.7 high +\[")   # padded to the widest
 
@@ -379,6 +379,14 @@ class StatusLine(unittest.TestCase):
         sub = os.path.join(self.f.root, "src", "deep")
         os.makedirs(sub)
         self.assertEqual(sl.find_reviews(sub), self.f.dir)
+
+    def test_a_run_whose_log_was_deleted_does_not_take_the_rows_down(self):
+        # No finish recorded and no log to date it by: its age is unknown (infinite).
+        self.f.run("gone", status="ok", finished=None, duration_s=1, turns=1)
+        self.f.run("dead", pid=DEAD_PID)
+        self.f.run("a", log=["[0m20s] turn 2 · Read x"])
+        [row] = self.f.rows()
+        self.assertIn("turn 2 · Read x", row)
 
     def test_a_repo_inside_another_does_not_find_the_outer_ones_reviews(self):
         inner = os.path.join(self.f.root, "vendor", "inner")
