@@ -74,7 +74,8 @@
 # droid runs here at `--auto medium`, so inside your repo it can build, run
 # tests, install packages, make network requests and commit locally. That is
 # the point — a finding backed by a command it ran beats one read off the diff.
-# ApplyPatch is removed so it cannot edit your files.
+# Its file-editing tools (ApplyPatch, Edit, Create) are removed so it cannot
+# edit your files.
 #
 # No config files. How to test and verify the repo is read from its instructions
 # file (AGENTS.md / CLAUDE.md), which droid loads by itself; --checks <path>
@@ -1084,17 +1085,21 @@ JSON="$(mktemp)"
 trap 'rm -f "$JSON"' EXIT
 
 # `--auto medium` lets the reviewer build and run the test suites, which is the
-# whole point; `--remove-tools ApplyPatch` drops the only file-editing tool, so
-# it stays a reviewer and not an author. Check the pairing against your droid
-# version with `droid exec --auto medium --remove-tools ApplyPatch --list-tools`
-# — droid ignores unknown flags silently, so a rename here fails open.
+# whole point; `--remove-tools` drops the file-editing tools, so it stays a
+# reviewer and not an author. Which ones a run has depends on the model: GPT
+# models edit with ApplyPatch, the rest (GLM, Gemini, Claude) with Edit and
+# Create, so all three go. Check against your droid version, on a model of
+# each kind, with
+#   droid exec -m <model> --auto medium --remove-tools ApplyPatch,Edit,Create --list-tools
+# — nothing under "Edit" may say allowed. droid ignores unknown flags and
+# tool names silently, so a rename here fails open.
 #
 # `-o stream-json` emits one event per line as droid works (init, tool_call,
 # tool_result, message, error, completion); progress_filter below turns those
 # into the live log and leaves the final result where `-o json` would have.
 DROID_ARGS=(
   exec -o stream-json -m "$MODEL"
-  --auto medium --remove-tools ApplyPatch
+  --auto medium --remove-tools "ApplyPatch,Edit,Create"
   --tag claude-triage
 )
 [ -n "$EFFORT" ] && DROID_ARGS+=(-r "$EFFORT")

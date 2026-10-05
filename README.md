@@ -61,7 +61,7 @@ droid-review.sh --checks docs/testing.md
 it can run your build and test suites, install packages, make network requests,
 and commit locally. 
 - This is deliberate, finding should be backed by checks, and not just reading the diff
-- The script removes droid's `ApplyPatch` tool so it can't edit your files, and the prompt tells it not to commit
+- The script removes droid's file-editing tools (`ApplyPatch`, `Edit`, `Create`) so it can't edit your files, and the prompt tells it not to commit
 - If that's more autonomy than you want, drop `--auto medium` from the `DROID_ARGS` array in the script; droid then runs read-only and reviews from the diff alone. Not recommended, but the option is there for you
 
 ### Requirements

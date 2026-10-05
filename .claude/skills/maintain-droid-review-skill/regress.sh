@@ -60,6 +60,8 @@ export STUB_DROID_CALLS="$t/calls"
 run "$t/o1" --base master
 # The default model at droid's default effort has nothing to check, so nothing
 # slow stands between the command and its files.
+check "review: every editing tool removed" grep -q -- '--remove-tools ApplyPatch,Edit,Create ' "$t/calls"
+check "review: the log says the command came back" grep -Eq '^\[[^]]*\] turn 2 ↳ Execute returned in [0-9]+s$' "$(sed -n 's/\.md$/.log/;1p' "$t/o1")"
 check "review: droid not asked for its model list" sh -c "! grep -q -- --list-tools '$t/calls'"
 md="$(sed -n 1p "$t/o1")"; m="$(meta_of "$md")"
 check "review: exit 0"                     [ "$RC" = 0 ]

@@ -109,16 +109,24 @@ asking droid:
 time $d --model gpt-6.1-sol --effort nonsense
 ```
 
-**Reviewer tool set.** The script runs `--auto medium --remove-tools ApplyPatch`.
+**Reviewer tool set.** The script runs `--auto medium --remove-tools
+ApplyPatch,Edit,Create`. Which editing tools a run has depends on the model:
+GPT models edit with ApplyPatch, the others (GLM, Gemini, Claude) with Edit
+and Create. So check a model of each kind, not droid's default alone — the
+default is a GPT model, and checking only it once hid that every other
+family could still edit:
 
 ```bash
-droid exec --auto medium --remove-tools ApplyPatch --list-tools
+for m in glm-5.3-flash gemini-3.8-flash gpt-6-luna claude-opus-5-5 auto; do
+  echo "== $m"
+  droid exec -m $m --auto medium --remove-tools ApplyPatch,Edit,Create --list-tools | sed -n '/^Edit/,/^Execute/p' | grep '•'
+done
 ```
 
-`ApplyPatch` must show `blocked`, and no other tool may appear under `Edit`. A
-new editing tool (or a renamed ApplyPatch) means the reviewer can author: add it
-to `--remove-tools` in `DROID_ARGS`. Execute stays allowed on purpose — the
-reviewer runs the test suites.
+Every tool under `Edit` must say `blocked`, on every model. One that says
+`allowed` (a new editing tool, or a renamed one) means the reviewer can
+author: add it to `--remove-tools` in `DROID_ARGS`. Execute stays allowed on
+purpose — the reviewer runs the test suites.
 
 **Stream-json events (one small model run — ask before spending it).**
 `progress_filter` reads `system/init` (`session_id`, `model`, `reasoning_effort`),
@@ -126,8 +134,8 @@ reviewer runs the test suites.
 `completion` (`finalText`, `numTurns`, `durationMs`, `session_id`).
 
 ```bash
-droid exec -o stream-json -m glm-5.3-flash -r low --remove-tools ApplyPatch \
-  "Read the first line of README.md and reply with it." | head -c 4000
+droid exec -o stream-json -m glm-5.3-flash -r low --remove-tools ApplyPatch,Edit,Create \
+  "Run the shell command 'echo hi', read the first line of README.md, and reply with both." | head -c 6000
 ```
 
 Every field above must be present under that name. A missing one breaks the
