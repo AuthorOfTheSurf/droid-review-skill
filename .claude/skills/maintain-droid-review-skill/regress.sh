@@ -247,6 +247,18 @@ PATH="$t/bin:$PATH" "$d" --note nope "x" > "$t/n2" 2>&1; RC=$?
 check "note: an unknown review fails"      sh -c "[ $RC != 0 ] && grep -q 'no review matches' '$t/n2'"
 PATH="$t/bin:$PATH" "$d" --all > /dev/null 2>&1; RC=$?
 check "--all alone is refused"             [ "$RC" = 2 ]
+# A wildcard in a model list is not matched against the files here ("committed" is one).
+PATH="$t/bin:$PATH" "$d" --base master --models 'glm,comm*' > "$t/g1" 2>&1; RC=$?
+check "--models with a wildcard is refused" sh -c "[ $RC = 2 ] && grep -qF \"not 'glm,comm*'\" '$t/g1' && ! grep -q \"'committed'\" '$t/g1'"
+PATH="$t/bin:$PATH" "$d" --base master --feedback 'comm*,stag* are two globs, not models' > "$t/g2" 2> "$t/g2.err"; RC=$?
+check "an ask that opens with a wildcard list is an ask" sh -c "[ $RC = 0 ] && grep -qF -- '- asked: comm*,stag* are two globs' \"\$(sed -n 1p '$t/g2')\""
+# A folder that cannot be written is said, not retried for ever.
+chmod a-w .droid-reviews
+PATH="$t/bin:$PATH" "$d" --base master > "$t/w1" 2>&1 & wpid=$!
+for _ in $(seq 1 20); do kill -0 "$wpid" 2>/dev/null || break; sleep 0.5; done
+kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; RC=$?
+chmod u+w .droid-reviews
+check "unwritable .droid-reviews: exit 2, says so" sh -c "[ $RC = 2 ] && grep -q 'cannot write to .*\.droid-reviews' '$t/w1'"
 
 git commit -q --allow-empty -m "after the reviews"
 PATH="$t/bin:$PATH" "$d" --history > "$t/h1" 2>&1; RC=$?

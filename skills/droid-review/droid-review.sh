@@ -498,9 +498,17 @@ no_such_models() {   # no_such_models <the list as typed> <name>...
 # list where some names are models and some are not is a mistake in the
 # command, not an ask: say so rather than run it all as text on the default
 # model. With no model in it at all, it is just how the ask begins.
+#
+# A list is split on its commas unquoted, so it may hold only what a model id
+# can: a `*` or `?` in it would otherwise be matched against the files here,
+# and a file's name put to droid as a model. A first word with anything else
+# in it is how the ask begins; --models with anything else is refused.
+MODEL_LIST='^[A-Za-z0-9._:/@-]+(,[A-Za-z0-9._:/@-]*)*$'
+[ -z "$MODELS" ] || [[ "$MODELS" =~ $MODEL_LIST ]] || \
+  die "--models takes model names joined by commas, not '$MODELS' (shortcuts: $SHORTCUTS)"
 WORD_EFFORT=""
 first="${ASK%%[[:space:]]*}"
-if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [[ "$first" == *,* ]]; then
+if [ -z "$MODELS" ] && [ -z "$NAMED_MODEL" ] && [[ "$first" == *,* ]] && [[ "$first" =~ $MODEL_LIST ]]; then
   known=0; unknown=()
   for m in ${first//,/ }; do
     if is_model "$m"; then known=$((known + 1)); else unknown+=("$m"); fi
@@ -614,6 +622,9 @@ fi
 
 OUT_DIR=".droid-reviews"
 mkdir -p "$OUT_DIR"
+# The claims below retry under a new name until one is free; in a folder that
+# cannot be written none ever is.
+[ -w "$OUT_DIR" ] || die "cannot write to $ROOT/$OUT_DIR: check its permissions"
 # The folder ignores itself, so no repo needs a .gitignore line for it.
 [ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
 STAMP="${_DROID_REVIEW_STAMP:-$(date +%Y%m%d-%H%M%S)}"   # a fan-out shares one stamp
