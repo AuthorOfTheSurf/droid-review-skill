@@ -86,7 +86,9 @@ length pressure you into applying it wholesale.
 
 Then leave one line on the result saying what you applied, so `/droid-history`
 shows what came of it: `droid-feedback.sh --note <result file> "applied the
-three label fixes; the renaming is with the user"`.
+three label fixes; the renaming is with the user"`. Every finished run gets
+one, also when there was nothing to apply ("no action to take"): the band above
+the prompt shows a run as `awaiting triage` until it has a note.
 
 ## 3. Re-check (optional)
 
@@ -96,7 +98,8 @@ three label fixes; the renaming is with the user"`.
 
 Worth it when you applied a batch and want the same reviewer to confirm the
 terms are now consistent. Skip it when the user only took one or two
-suggestions — there is nothing to re-check.
+suggestions — there is nothing to re-check. A re-check is a run of its own:
+note what it said too (`--note last "re-check: terms now consistent"`).
 
 ## 4. Report
 
