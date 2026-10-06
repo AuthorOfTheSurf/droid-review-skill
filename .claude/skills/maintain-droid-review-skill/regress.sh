@@ -189,7 +189,10 @@ deadline = time.time() + 60
 while (count("running") < int(sys.argv[2]) or count("ok") < ok) and time.time() < deadline and p.poll() is None:
     time.sleep(0.2)
 time.sleep(1)
-os.killpg(p.pid, signal.SIGTERM)
+if os.environ.get("TERM_ONLY"):
+    os.kill(p.pid, signal.SIGTERM)   # the script alone, as a plain `kill <pid>`
+else:
+    os.killpg(p.pid, signal.SIGTERM)
 rc = p.wait()
 sys.exit(rc if rc >= 0 else 128 - rc)
 ' "$out" "$runs" "$d" "$@"
@@ -200,6 +203,15 @@ m7="$(newest_meta)"
 check "interrupt: exit 130"                [ "$RC" = 130 ]
 check "interrupt: metadata interrupted"    json "$m7" 'm["status"]=="interrupted" and m["finished"]'
 check "interrupt: log says interrupted"    sh -c "tail -1 '${m7%.json}.log' | grep -q 'interrupted$'"
+
+# A TERM to the script alone must stop droid too, at once: left running, the
+# stub would take 20 seconds more, and a real droid minutes of a model run.
+s7=$(date +%s)
+TERM_ONLY=1 STUB_DROID_DELAY=5 interrupt "$t/o7c" 1 --base master
+check "kill of the run alone: exit 130"    [ "$RC" = 130 ]
+check "kill of the run alone: at once"     [ $(( $(date +%s) - s7 )) -lt 10 ]
+check "kill of the run alone: droid stopped" sh -c "! pgrep -f '$t/bin/droid' >/dev/null"
+check "kill of the run alone: interrupted" json "$(newest_meta)" 'm["status"]=="interrupted" and m["finished"]'
 
 interrupt "$t/o8" 2 --base master --models glm,gemini
 check "fan-out interrupt: exit 130"        [ "$RC" = 130 ]
@@ -235,6 +247,18 @@ PATH="$t/bin:$PATH" "$d" --note nope "x" > "$t/n2" 2>&1; RC=$?
 check "note: an unknown review fails"      sh -c "[ $RC != 0 ] && grep -q 'no review matches' '$t/n2'"
 PATH="$t/bin:$PATH" "$d" --all > /dev/null 2>&1; RC=$?
 check "--all alone is refused"             [ "$RC" = 2 ]
+# A wildcard in a model list is not matched against the files here ("committed" is one).
+PATH="$t/bin:$PATH" "$d" --base master --models 'glm,comm*' > "$t/g1" 2>&1; RC=$?
+check "--models with a wildcard is refused" sh -c "[ $RC = 2 ] && grep -qF \"not 'glm,comm*'\" '$t/g1' && ! grep -q \"'committed'\" '$t/g1'"
+PATH="$t/bin:$PATH" "$d" --base master --feedback 'comm*,stag* are two globs, not models' > "$t/g2" 2> "$t/g2.err"; RC=$?
+check "an ask that opens with a wildcard list is an ask" sh -c "[ $RC = 0 ] && grep -qF -- '- asked: comm*,stag* are two globs' \"\$(sed -n 1p '$t/g2')\""
+# A folder that cannot be written is said, not retried for ever.
+chmod a-w .droid-reviews
+PATH="$t/bin:$PATH" "$d" --base master > "$t/w1" 2>&1 & wpid=$!
+for _ in $(seq 1 20); do kill -0 "$wpid" 2>/dev/null || break; sleep 0.5; done
+kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; RC=$?
+chmod u+w .droid-reviews
+check "unwritable .droid-reviews: exit 2, says so" sh -c "[ $RC = 2 ] && grep -q 'cannot write to .*\.droid-reviews' '$t/w1'"
 
 git commit -q --allow-empty -m "after the reviews"
 PATH="$t/bin:$PATH" "$d" --history > "$t/h1" 2>&1; RC=$?
