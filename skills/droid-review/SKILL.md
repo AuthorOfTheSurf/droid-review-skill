@@ -134,7 +134,10 @@ unless the user's standing instruction for the branch says to.
 ## 4. Note what you did
 
 Leave one line on the review saying what came of it, so `/droid-history` shows
-the history as finding → what you did → the reviewer's verdict on it:
+the history as finding → what you did → the reviewer's verdict on it. Every
+finished run gets one, also when there was nothing to do ("no findings; no
+action to take"): the band above the prompt shows a run as `awaiting triage`
+until it has a note.
 
 ```bash
 .claude/skills/droid-review/droid-review.sh --note <review file> "fixed the base-ref crash and the quoting bug; rejected the race as a false positive (the lock is held)"
@@ -165,6 +168,10 @@ finding is the one that grades the fix. It re-reads its own findings against
 the fixed code (the review file's title and `round` say which round it is) and reports fixed / still open / false positive plus anything
 new. Do not name a model on a re-check unless the user asks for a different
 reviewer. One round trip is enough; do not loop until the reviewer is silent.
+
+A re-check is a run of its own, so it gets its own note once you have read it:
+`--note <session id> "re-check: both fixed, nothing new"` (a session id means
+its newest round). If it found something new, say what you did about that.
 
 ## 6. Report
 
