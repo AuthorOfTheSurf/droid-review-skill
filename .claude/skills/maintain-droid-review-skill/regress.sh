@@ -189,7 +189,10 @@ deadline = time.time() + 60
 while (count("running") < int(sys.argv[2]) or count("ok") < ok) and time.time() < deadline and p.poll() is None:
     time.sleep(0.2)
 time.sleep(1)
-os.killpg(p.pid, signal.SIGTERM)
+if os.environ.get("TERM_ONLY"):
+    os.kill(p.pid, signal.SIGTERM)   # the script alone, as a plain `kill <pid>`
+else:
+    os.killpg(p.pid, signal.SIGTERM)
 rc = p.wait()
 sys.exit(rc if rc >= 0 else 128 - rc)
 ' "$out" "$runs" "$d" "$@"
@@ -200,6 +203,15 @@ m7="$(newest_meta)"
 check "interrupt: exit 130"                [ "$RC" = 130 ]
 check "interrupt: metadata interrupted"    json "$m7" 'm["status"]=="interrupted" and m["finished"]'
 check "interrupt: log says interrupted"    sh -c "tail -1 '${m7%.json}.log' | grep -q 'interrupted$'"
+
+# A TERM to the script alone must stop droid too, at once: left running, the
+# stub would take 20 seconds more, and a real droid minutes of a model run.
+s7=$(date +%s)
+TERM_ONLY=1 STUB_DROID_DELAY=5 interrupt "$t/o7c" 1 --base master
+check "kill of the run alone: exit 130"    [ "$RC" = 130 ]
+check "kill of the run alone: at once"     [ $(( $(date +%s) - s7 )) -lt 10 ]
+check "kill of the run alone: droid stopped" sh -c "! pgrep -f '$t/bin/droid' >/dev/null"
+check "kill of the run alone: interrupted" json "$(newest_meta)" 'm["status"]=="interrupted" and m["finished"]'
 
 interrupt "$t/o8" 2 --base master --models glm,gemini
 check "fan-out interrupt: exit 130"        [ "$RC" = 130 ]

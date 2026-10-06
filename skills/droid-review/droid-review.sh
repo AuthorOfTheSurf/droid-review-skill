@@ -1146,7 +1146,7 @@ else
 fi
 
 JSON="$(mktemp)"
-trap 'rm -f "$JSON"' EXIT
+trap 'rm -f "$JSON" "$JSON.rc"' EXIT
 
 # `--auto medium` lets the reviewer build and run the test suites, which is the
 # whole point; `--remove-tools` drops the file-editing tools, so it stays a
@@ -1257,16 +1257,25 @@ else
 fi
 META="$OUT_BASE.json"
 run_meta start "$META"
-# Interrupted (Ctrl-C, or TERM from a fan-out parent): say so in the log and
-# the metadata, so nothing reads this run as still going. bash runs the trap
-# once the droid pipeline it is waiting on has ended.
+# Interrupted (Ctrl-C, or TERM from a fan-out parent or a plain `kill`): stop
+# droid, and say so in the log and the metadata, so nothing reads this run as
+# still going. droid runs in the background and is waited on, because bash
+# holds a trap until a foreground pipeline has ended: a TERM to this script
+# alone used to leave droid running to its end, and then threw its review away.
 # A fan-out child leaves the log line to its parent, which writes one too.
-trap '[ -n "${_DROID_REVIEW_CHILD:-}" ] || echo "[$(elapsed "$SECONDS")] interrupted" >> "$LOG"
+RUN=""
+trap '[ -z "$RUN" ] || kill_tree "$RUN"
+      [ -n "${_DROID_REVIEW_CHILD:-}" ] || echo "[$(elapsed "$SECONDS")] interrupted" >> "$LOG"
       run_meta status "$META" interrupted; exit 130' INT TERM
 
 set +e
-droid "${DROID_ARGS[@]}" "$PROMPT" | progress_filter "$LOG" "$JSON" "$MODEL" "$EFFORT"
-STATUS=${PIPESTATUS[0]}
+(
+  droid "${DROID_ARGS[@]}" "$PROMPT" | progress_filter "$LOG" "$JSON" "$MODEL" "$EFFORT"
+  echo "${PIPESTATUS[0]}" > "$JSON.rc"
+) &
+RUN=$!
+wait "$RUN"
+STATUS="$(cat "$JSON.rc" 2>/dev/null || echo 1)"
 set -e
 
 claim_out
