@@ -21,7 +21,7 @@ change only what they pick.
 
 ```bash
 git pull
-droid --version            # compare with "as of droid X" above shortcut() and in README.md
+droid --version            # compare with "as of droid X" above shortcut()
 skills/droid-review/droid-review.sh --whats-new
 ```
 
@@ -174,8 +174,8 @@ Report, in one table (shortcut → current → candidate → why):
   unless the user asks.
 
 If nothing drifted, say so in one line. Apply only what the user picks: edit
-`shortcut()`, the droid version in the comment above it, and the shortcut table
-and version note in README.md — the three must agree. Update `argument-hint` in
+`shortcut()`, the droid version in the comment above it, and the shortcut list
+in README.md — the three must agree. Update `argument-hint` in
 the droid-review and droid-feedback SKILL.md only when a shortcut name is added or removed. Then:
 
 ```bash
@@ -219,9 +219,10 @@ failure the stub cannot yet produce, add a stub mode and a check for it.
 
 ## 5. Docs agree with the script
 
-- Every flag `usage` prints (`$d --help`) is described in README.md, and the ones
-  a skill user needs appear in `skills/droid-review/SKILL.md`.
-- The shortcut table in README.md matches `$d --models`.
+- README.md is short on purpose: `$d --help` is the reference for every flag.
+  Every flag README.md does name is one `usage` prints, and the ones a skill
+  user needs appear in `skills/droid-review/SKILL.md`.
+- The shortcut list in README.md matches `$d --models`.
 - `argument-hint` in the droid-review and droid-feedback SKILL.md lists exactly
   the shortcut names.
 - Every `droid-review.sh` example in README.md and the SKILL.md files still
