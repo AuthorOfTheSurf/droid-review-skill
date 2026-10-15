@@ -105,9 +105,9 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # Shortcuts: name → model. None pins an effort: each runs at droid's per-model
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
-# names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek) point at the newest
-# model in the family as of droid 0.232.0 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek"
+# names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron) point at the newest
+# model in the family as of droid 0.242.0 — move them when droid ships a newer one.
+SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash" ;;
@@ -123,6 +123,9 @@ shortcut() {
     qwen)   echo "qwen3.8-max" ;;
     kimi)   echo "kimi-k3" ;;
     deepseek) echo "deepseek-v4.1-flash" ;;
+    argon)  echo "gemini-4-argon" ;;
+    muse)   echo "muse-spark-1.2" ;;
+    nemotron) echo "nemotron-3.5-super" ;;
     *) return 1 ;;
   esac
 }
@@ -176,7 +179,7 @@ try:
     with open(os.path.realpath(shutil.which("droid")), "rb") as f:
         buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
     consts = dict(re.findall(rb"o\.([A-Z0-9_]+)=\"([^\"]+)\"", buf))
-    for m in re.finditer(rb"\{id:(?:\"([^\"]+)\"|[\w$]+\.([A-Z0-9_]+)),name:\"[^\"]*\"[^\x00]{0,3000}?reasoningEffort:\{supported:\[([^\]]*)\],default:\"([^\"]*)\"", buf):
+    for m in re.finditer(rb"\{id:(?:\"([^\"]+)\"|[\w$]+\.([A-Z0-9_]+)),(?:newUntil:new Date\(\"[^\"]*\"\),)?name:\"[^\"]*\"[^\x00]{0,3000}?reasoningEffort:\{supported:\[([^\]]*)\],default:\"([^\"]*)\"", buf):
         if b"{id:" in m.group(0)[4:]:
             continue   # ran into the next model: this one sets no effort
         model_id = (m.group(1) or consts.get(m.group(2), m.group(2))).decode()
@@ -302,7 +305,7 @@ try:
         if name:
             promos[name.group(1).decode()] = (float(m.group(1)), day(m.group(2).decode()), day(m.group(3).decode()), m.group(4).decode())
     # Keys are quoted ("gpt-6-sol":{id:...) or bare (inkling:{id:...).
-    for m in re.finditer(rb":\{id:\"([\w.:-]+)\",name:", t):
+    for m in re.finditer(rb":\{id:\"([\w.:-]+)\",(?:newUntil:new Date\(\"([^\"]*)\"\),)?name:", t):
         mid = m.group(1).decode()
         key = re.search(rb"[{,]\"?([\w.:-]+)\"?$", t[max(0, m.start() - 80):m.start()])
         if not key or key.group(1) != m.group(1) or mid in info:
@@ -318,7 +321,7 @@ try:
             if p and p[1] <= now < p[2]:
                 promo = p
                 break
-        new = g(r"newUntil:new Date\(\"([^\"]+)\"\)")
+        new = g(r"newUntil:new Date\(\"([^\"]+)\"\)") or (m.group(2) or b"").decode() or None
         info[mid] = {
             "price": float(price) if price else None, "promo": promo,
             "new": new[:10] if new and now < day(new) else None,
@@ -472,10 +475,10 @@ is_model() {
     known_model "$1"
   elif [[ "$1" =~ ^[a-z][a-z-]*$ ]]; then
     python3 -c '
-import mmap, os, shutil, sys
+import mmap, os, re, shutil, sys
 with open(os.path.realpath(shutil.which("droid")), "rb") as f:
     t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-sys.exit(0 if t.find(b"{id:\"%s\",name:" % sys.argv[1].encode()) >= 0 else 1)' "$1" 2>/dev/null
+sys.exit(0 if re.search(rb"\{id:\"%s\",(?:newUntil:new Date\(\"[^\"]*\"\),)?name:" % re.escape(sys.argv[1].encode()), t) else 1)' "$1" 2>/dev/null
   else
     return 1
   fi
@@ -767,11 +770,11 @@ def model_name(mid):
     try:
         with open(os.path.realpath(shutil.which("droid") or ""), "rb") as f:
             t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        hit = re.search(rb'\{id:"%s",name:"([^"]+)"' % re.escape(mid.encode()), t)
+        hit = re.search(rb'\{id:"%s",(?:newUntil:new Date\("[^"]*"\),)?name:"([^"]+)"' % re.escape(mid.encode()), t)
         if not hit:   # the id may be a constant: o.GPT_6_SOL="gpt-6-sol", then {id:Mn.GPT_6_SOL,name:...}
             const = re.search(rb'\.([A-Z0-9_]+)="%s"' % re.escape(mid.encode()), t)
             if const:
-                hit = re.search(rb'\{id:[\w$]+\.%s,name:"([^"]+)"' % const.group(1), t)
+                hit = re.search(rb'\{id:[\w$]+\.%s,(?:newUntil:new Date\("[^"]*"\),)?name:"([^"]+)"' % const.group(1), t)
         if hit:
             return hit.group(1).decode()
     except (OSError, ValueError, TypeError):
