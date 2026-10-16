@@ -113,6 +113,8 @@ run "$t/o2e" --base master --model droid-review-no-such-model
 check "unknown model: exit 2, says so"     sh -c "[ '$RC' = 2 ] && grep -q \"droid has no model 'droid-review-no-such-model'\" '$t/o2e.err'"
 run "$t/o2f" --base master glm --effort nonsense
 check "unknown effort: exit 2, lists the levels" sh -c "[ '$RC' = 2 ] && grep -q 'takes reasoning effort .*, not .nonsense.' '$t/o2f.err'"
+"$d" --efforts > "$t/efforts" 2>&1   # the real droid: the registry is read from its binary
+check "catalog: every built-in model has its levels" sh -c "grep -q '^glm-5.3-flash ' '$t/efforts' && ! grep -v '^custom:' '$t/efforts' | grep -q 'droid gives none'"
 check "neither started droid"              sh -c "! grep -q stream-json '$t/calls'"
 
 # Ordinary words of an ask are not looked up as models.

@@ -65,7 +65,7 @@ effort reads nothing.
 ```bash
 d=skills/droid-review/droid-review.sh
 $d --efforts                      # every accepted id: default, supported levels, shortcut
-$d --efforts | awk '$3 ~ /^\(droid gives none\)/ && $1 !~ /^custom:/'   # must print nothing
+$d --efforts | awk '/\(droid gives none\)/ && $1 !~ /^custom:/'   # must print nothing
 ```
 
 Every built-in id must show levels. A built-in id with `(droid gives none)` means
