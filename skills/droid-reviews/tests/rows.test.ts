@@ -4,21 +4,20 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { DroidReviewsRow, DroidReviewsSeg } from '../types'
-import { BAR_W, QUIET_S, STALE_S, ago, history, phase, rows, short } from '../hooks/rows'
+import { BAR_W, DOTS, FINISH_S, QUIET_S, STALE_S, STOP, TEXT_W, ago, history, paint, phase, plan, rows, short } from '../hooks/rows'
 import type { LogEnds, Meta, Run } from '../hooks/rows'
 
 const NOW = Date.parse('2026-10-05T19:00:00+08:00') / 1000
 const iso = (secondsAgo: number) => new Date((NOW - secondsAgo) * 1000).toISOString()
 
-// The bar's grounds, as rows.ts mixes them.
-const ON_BLUE = '#576a8a'
-const ON_DONE = '#2c5294'
-const ON_RED = '#962c28'
-const ON_EMPTY = '#2e2e2e'
+// The bar's colours, as rows.ts draws them.
+const RIBBON = '#6888c4'
+const FINISHED = '#89b4fa'
+const FAILED = '#f85149'
+const TRACK = '#444444'
 const GREEN = '#3fb950'
 const GREY = '#8a8a8a'
 const BLUE = '#89b4fa'
-const STOP = Math.round(BAR_W * 0.8) // where a running bar stops
 
 type Given = Meta & { log?: string[]; quiet?: number; isAlive?: boolean }
 
@@ -49,11 +48,24 @@ const only = <T>(list: T[]): T => {
   return list[0]!
 }
 
-/** The cells of a row's bar: the ones on a ground. */
-const cells = (row: DroidReviewsRow) => row.segs.filter(seg => seg.bg)
-/** How many of a bar's cells sit on a ground colour. */
-const filled = (row: DroidReviewsRow, ground: string) =>
-  cells(row).filter(seg => seg.bg === ground).reduce((n, seg) => n + seg.text.length, 0)
+// A dot's bit in a braille cell, by column (left, right) and height (bottom up).
+const BIT = [
+  [0x40, 0x04, 0x02, 0x01],
+  [0x80, 0x20, 0x10, 0x08],
+]
+type Col = { h: number; color: string }
+/** The bar read back as its columns: each one's height (its dots lit from the bottom) and its cell's colour. */
+function columns(row: DroidReviewsRow): Col[] {
+  const chars = row.segs.flatMap(seg => [...seg.text].map(ch => ({ ch, color: seg.color ?? '' })))
+  const at = chars.findIndex((_, i) => chars.slice(i, i + BAR_W).every(c => c.ch >= '\u2800' && c.ch <= '\u28ff') && chars.length >= i + BAR_W)
+  expect(at).toBeGreaterThan(0)
+  return chars.slice(at, at + BAR_W).flatMap(({ ch, color }) => {
+    const bits = ch.charCodeAt(0) - 0x2800
+    return BIT.map(side => ({ h: side.findIndex(b => !(bits & b)) === -1 ? 4 : side.findIndex(b => !(bits & b)), color }))
+  })
+}
+/** How many columns the ribbon (or the blob) covers: the ones taller than the track in its colour. */
+const ribbon = (row: DroidReviewsRow, color = RIBBON) => columns(row).filter(c => c.color === color && c.h >= 2).length
 const seg = (row: DroidReviewsRow, said: string): DroidReviewsSeg | undefined => row.segs.find(s => s.text === said)
 
 const READ = ['[0m20s] turn 2 · Read x']
@@ -65,7 +77,7 @@ test('nothing running or recent: no rows', () => {
 test('a running row shows the model, the effort, the time so far and the last call', () => {
   const row = only(show([run('a', { log: ['[0m01s] started glm-5.3-flash (reasoning high) session s', '[0m20s] turn 3 · Execute git diff --stat'] })]))
   expect(row).toContain('droid-review · glm-5.3-flash high')
-  expect(row).toMatch(/ {3}\S 25s {3,}reading files/) // the spinner, then the time
+  expect(row).toMatch(/[⠀-⣿]{20} 25s {3,}reading files/) // the bar, then the time
   expect(row).toContain('turn 3 · Execute git diff --stat')
   expect(row).not.toContain('/ ~') // no history: no estimate
 })
@@ -92,52 +104,48 @@ test('the estimate counts logs from before the metadata', () => {
   expect(only(show([run('a', { log: READ })], orphans))).toContain('/ ~1m ')
 })
 
-test('the bar is one piece with its text inside, never wider', () => {
+test('the bar is braille the same width, what it says padded beside it', () => {
   const row = only(draw([run('ok', { status: 'ok', finished: iso(60), duration_s: 92, turns: 14 })]))
-  expect(text(row)).toContain('   ✓ 1m 32s · 14 turns' + ' '.repeat(BAR_W - 20) + '  awaiting')
-  expect(filled(row, ON_DONE)).toBe(BAR_W) // done: full
-  // A model with an hour-long median: the longest text a bar holds still fits its cells.
-  const long = only(draw([finished('past', { duration_s: 3599 }), run('a', { started: iso(3599), log: READ })]))
-  expect(cells(long).reduce((n, s) => n + s.text.length, 0)).toBe(BAR_W)
+  expect(text(row)).toContain(' ' + '⣤'.repeat(BAR_W) + ' ' + '1m 32s · 14 turns'.padEnd(TEXT_W) + '  awaiting')
+  expect(ribbon(row, FINISHED)).toBe(DOTS) // done: whole
+  // A model with an hour-long median: the longest time still fits its room.
+  const long = text(only(draw([finished('past', { duration_s: 3599 }), run('a', { started: iso(3599), log: READ })])))
+  expect(long).toMatch(new RegExp(`[⠀-⣿]{${BAR_W}} 59m 59s / ~59m 59s {2,}reading`))
 })
 
-test('the bar fills with time, up to the stop', () => {
+test('the ribbon grows with time, up to the stop', () => {
   const [late, early] = draw([
     finished('ok0', { duration_s: 40 }),
     finished('ok1', { duration_s: 40 }),
     run('a', { started: iso(20), log: READ }),
     run('b', { started: iso(90), log: READ }),
   ])
-  expect(filled(early!, ON_BLUE)).toBe(STOP / 2) // half the estimate
-  expect(filled(late!, ON_BLUE)).toBe(STOP) // past it: the stop
-  expect(text(late!)).toMatch(/ {3}\S 1m 30s \/ ~40s /)
+  expect(ribbon(early!)).toBe(STOP / 2) // half the estimate
+  expect(ribbon(late!)).toBe(STOP) // past it: the stop
+  expect(columns(late!)[STOP]).toEqual({ h: 1, color: TRACK }) // four fifths is not marked: past the ribbon, only the track
+  expect(text(late!)).toMatch(new RegExp(`[⠀-⣿]{${BAR_W}} 1m 30s / ~40s `))
 })
 
 test('a running bar stops at four fifths however late', () => {
-  const row = only(draw([finished('ok', { duration_s: 40 }), run('a', { started: iso(40000), log: READ })]))
-  expect(filled(row, ON_BLUE)).toBe(STOP) // a thousand times over: still blue, still open
-  expect(filled(row, ON_EMPTY)).toBe(BAR_W - STOP)
+  const cols = columns(only(draw([finished('ok', { duration_s: 40 }), run('a', { started: iso(40000), log: READ })])))
+  expect(cols.filter(c => c.color === RIBBON).length).toBe(STOP) // a thousand times over: still blue, still open
+  expect(cols.slice(STOP + 2)).toEqual(Array(DOTS - STOP - 2).fill({ h: 1, color: TRACK })) // the open fifth: the track
 })
 
-test('the cell at the edge of the fill shades in between whole cells', () => {
-  // On a 220s estimate the stop's 22 cells fill one in ten seconds: 10.2, 10.5 and 10.8 cells.
-  const edges = [102, 105, 108].map(elapsed => {
-    const row = only(draw([finished('ok', { duration_s: 220 }), run('a', { started: iso(elapsed), log: READ })]))
-    expect(filled(row, ON_BLUE)).toBe(10)
-    return cells(row)[1]!.bg
-  })
-  expect(new Set(edges).size).toBe(3)
-  expect(edges).not.toContain(ON_EMPTY)
-  expect(edges).not.toContain(ON_BLUE)
-})
-
-test('with no history a block drifts across the bar', () => {
-  const at = (now: number) => {
-    const row = only(draw([run('a', { log: READ })], [], now))
-    expect(filled(row, ON_BLUE)).toBe(4)
-    return cells(row).findIndex(s => s.bg === ON_BLUE) === 0 ? 0 : cells(row)[0]!.text.length
+test('the ribbon ends clean against the track', () => {
+  // On a 320s estimate the stop's 32 dots fill one in ten seconds.
+  for (const elapsed of [105, 115]) {
+    const cols = columns(only(draw([finished('ok', { duration_s: 320 }), run('a', { started: iso(elapsed), log: READ })])))
+    const n = Math.round(elapsed / 10)
+    expect(cols.slice(0, n).every(c => c.h === 2)).toBe(true)
+    if (n % 2) expect(cols[n]!.h).toBe(0) // the track's dot in the ribbon's last cell is left out
   }
-  expect(at(NOW)).not.toBe(at(NOW + 1))
+})
+
+test('with no history a blob drifts along the track', () => {
+  const at = (now: number) => columns(only(draw([run('a', { log: READ })], [], now))).findIndex(c => c.h >= 2)
+  expect(at(NOW + 1) - at(NOW)).toBe(2)
+  expect(columns(only(draw([run('a', { log: READ })]))).filter(c => c.h >= 2)).toHaveLength(6)
 })
 
 test('feedback is timed against feedback', () => {
@@ -198,20 +206,20 @@ test('a running row leads with the phase, in the theme\'s own colour', () => {
   expect(seg(row, 'reading files')).toEqual({ text: 'reading files' }) // not grey, and not bold
 })
 
-test('the spinner turns a frame each second', () => {
-  const frames = [0, 1, 2, 3].map(i => only(show([run('a', { log: READ })], [], NOW + i))[0])
-  expect(new Set(frames).size).toBe(4)
+test('held still, the spinner turns a frame each second', () => {
+  const frames = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => only(show([run('a', { log: READ })], [], NOW + i))[0])
+  expect(new Set(frames).size).toBe(8) // every frame, one a second
+  expect(frames[8]).toBe(frames[0])
 })
 
-test('times in the bar are short, and a running bar leads with the spinner', () => {
+test('times beside the bar are short, and start in one column', () => {
   expect([0, 45, 60, 123, 240, 3599, 3600, 3725, 7200].map(short)).toEqual(['0s', '45s', '1m', '2m 3s', '4m', '59m 59s', '1h', '1h 2m', '2h'])
   const [done, running] = show([
     run('ok', { status: 'ok', finished: iso(60), duration_s: 134, turns: 21, started: iso(300) }),
     run('a', { started: iso(123), log: READ }),
   ])
-  expect(running![0]).toBe(running![running!.indexOf('2m 3s') - 2]) // the row's spinner, again in its bar
-  expect(done).toContain('   ✓ 2m 14s · 21 turns')
-  // So the two times start in the same column.
+  expect(done).toMatch(/^✓ /)
+  expect(done).toContain(' 2m 14s · 21 turns')
   expect(done!.indexOf('2m 14s')).toBe(running!.indexOf('2m 3s'))
 })
 
@@ -223,7 +231,7 @@ test('a quiet row says for how long', () => {
 })
 
 test('a dead process reads as stopped, and goes once its log is old', () => {
-  expect(only(show([run('a', { isAlive: false, log: READ })]))).toMatch(/ {3}stopped {3,}just now · its process is gone/)
+  expect(only(show([run('a', { isAlive: false, log: READ })]))).toMatch(/[⠀-⣿] stopped {3,}just now · its process is gone/)
   expect(show([run('a', { isAlive: false, log: READ, quiet: 3600 })])).toEqual([])
 })
 
@@ -242,15 +250,15 @@ test('finished rows show for fifteen minutes', () => {
   ])
   expect(drawn).toHaveLength(3)
   const all = drawn.map(text).join('\n')
-  expect(all).toMatch(/ {3}✓ 1m 32s · 14 turns {3,}awaiting triage for 14m\.\.\.$/m)
-  expect(all).toMatch(/ {3}failed after 3s {3,}just now · droid reported: no auth/)
-  expect(all).toMatch(/ {3}interrupted after 7s {3,}just now/)
+  expect(all).toMatch(/^✓ .*[⠀-⣿] 1m 32s · 14 turns {3,}awaiting triage for 14m\.\.\.$/m)
+  expect(all).toMatch(/[⠀-⣿] failed after 3s {3,}just now · droid reported: no auth/)
+  expect(all).toMatch(/[⠀-⣿] interrupted after 7s {3,}just now/)
   expect([0, 59, 60, 899, 3600, 7300].map(ago)).toEqual(['just now', 'just now', '1m ago', '14m ago', '1h ago', '2h ago'])
   // The result fills the bar, in its colour.
-  const ok = drawn.find(row => text(row).includes('   ✓'))!
-  expect(filled(ok, ON_DONE)).toBe(BAR_W)
+  const ok = drawn.find(row => text(row).startsWith('✓'))!
+  expect(ribbon(ok, FINISHED)).toBe(DOTS)
   expect(ok.segs[0]).toEqual({ text: '✓', color: BLUE, bold: true }) // a review that finished: the model's blue
-  expect(filled(drawn.find(row => text(row).includes('failed after'))!, ON_RED)).toBe(BAR_W)
+  expect(ribbon(drawn.find(row => text(row).includes('failed after'))!, FAILED)).toBe(DOTS)
 })
 
 test('re-checks say their round', () => {
@@ -365,4 +373,92 @@ test('a run with no known end does not take the other rows down', () => {
     ]),
   )
   expect(row).toContain('turn 2 · Read x')
+})
+
+// In motion: the band painted every frame (band.tsx), not held still.
+
+/** How bright a colour is: its channels summed. */
+const bright = (c: string) => [1, 3, 5].reduce((n, i) => n + parseInt(c.slice(i, i + 2), 16), 0)
+/** How far the ribbon reaches: the columns before the first one that is track or gap. */
+const reach = (row: DroidReviewsRow) => columns(row).findIndex(c => c.h < 2 || c.color === TRACK)
+
+const moving = (runs: Run[], t: number, ended: { at: number; from: number } | null = null) =>
+  paint(only(plan(runs, history(runs, []), NOW)), t, { ended })
+const ESTIMATE = [finished('ok0', { duration_s: 40 }), finished('ok1', { duration_s: 40 })]
+const HOP_S = 0.38 // bounce(): a hop off the wall and back
+
+test('in motion the ribbon hits the stop, flashes against it, springs back and comes to rest there', () => {
+  const at = (afterHit: number) => moving([...ESTIMATE, run('a', { started: iso(40), log: READ })], NOW + afterHit)
+  const touch = columns(at(0))
+  expect(reach(at(0))).toBeGreaterThanOrEqual(STOP)
+  expect(touch[STOP - 1]!.h).toBe(2) // pressed against the stop: it flashes at its own height, no taller
+  expect(bright(touch[STOP - 1]!.color)).toBeGreaterThan(bright(RIBBON))
+  expect(reach(at(HOP_S / 2))).toBeLessThan(STOP) // the first hop off it
+  expect(columns(at(HOP_S / 2))[STOP - 1]!.h).toBeLessThan(2)
+  const rest = columns(at(5))
+  expect(reach(at(5))).toBe(STOP) // at rest: four fifths, as when still
+  expect(rest[STOP - 1]).toEqual({ h: 2, color: RIBBON }) // the flash is over
+  expect(rest[STOP]).toEqual({ h: 1, color: TRACK })
+})
+
+test('every cell of the bar lights an even number of dots, in every state and every frame', () => {
+  const dots = (row: DroidReviewsRow) => {
+    const bar = text(row).split(' ').find(word => /^[\u2800-\u28ff]{20}$/.test(word))!
+    return [...bar].map(ch => (ch.charCodeAt(0) - 0x2800).toString(2).replace(/0/g, '').length)
+  }
+  const odd: string[] = []
+  const look = (what: string, row: DroidReviewsRow) => dots(row).some(n => n % 2) && odd.push(what)
+  for (let t = NOW; t < NOW + 12; t += 1 / 30) {
+    look('estimate', moving([...ESTIMATE, run('a', { started: iso(30), log: READ })], t))
+    look('blob', moving([run('a', { log: READ })], t))
+    look('finish', moving([finished('a', { finished: iso(0) })], NOW + ((t - NOW) % FINISH_S), { at: NOW, from: 20 }))
+  }
+  expect([...new Set(odd)]).toEqual([])
+})
+
+test('in motion a swell runs along the ribbon', () => {
+  // Where the swell is in each frame of one sweep: the first column of the ribbon standing taller than it.
+  const sweep = Math.ceil(NOW / 2.8) * 2.8
+  const swells = Array.from({ length: 14 }, (_, i) =>
+    columns(moving([...ESTIMATE, run('a', { started: iso(20), log: READ })], sweep + i * 0.1)).slice(0, STOP / 2 - 2).findIndex(c => c.h > 2),
+  ).filter(at => at >= 0)
+  expect(swells.length).toBeGreaterThan(6)
+  expect(swells).toEqual([...swells].sort((a, b) => a - b)) // left to right
+  const still = columns(only(draw([...ESTIMATE, run('a', { started: iso(20), log: READ })])))
+  expect(still.slice(0, STOP / 2 - 1).every(c => c.h === 2)).toBe(true) // still: none
+})
+
+test('in motion the blob flies wall to wall, long in flight, squashed narrow and flashing against each wall', () => {
+  const at = (t: number) => columns(moving([run('a', { log: READ })], t)).filter(c => c.h >= 2)
+  const cycle = 2 * (1.3 + 0.24)
+  const start = Math.ceil(NOW / cycle) * cycle
+  const flying = at(start + 0.65)
+  const right = at(start + 1.3 + 0.12)
+  expect(flying.length).toBeGreaterThan(6)
+  expect(Math.max(...flying.map(c => c.h))).toBe(2)
+  expect(right.length).toBeLessThan(6)
+  expect(Math.max(...right.map(c => c.h))).toBe(2) // no taller against the wall
+  expect(bright(columns(moving([run('a', { log: READ })], start + 1.3 + 0.12)).at(-1)!.color)).toBeGreaterThan(bright(RIBBON)) // against the wall: a flash
+})
+
+test('a run seen to end rushes its ribbon full, slams into the end and settles in its colour', () => {
+  const done = [run('a', { status: 'ok', finished: iso(0), duration_s: 40, turns: 6 })]
+  const at = (s: number) => moving(done, NOW + s, { at: NOW, from: STOP })
+  expect(reach(at(0))).toBe(STOP) // from where it was
+  expect(reach(at(0.2))).toBeGreaterThan(STOP)
+  expect(reach(at(0.2))).toBeLessThan(DOTS)
+  expect(columns(at(0.36)).at(-1)!.h).toBe(2) // the slam: no taller against the end
+  expect(bright(columns(at(0.36)).at(-1)!.color)).toBeGreaterThan(bright(bright(RIBBON) > bright(FINISHED) ? RIBBON : FINISHED)) // but a flash
+  expect(reach(at(0.36 + HOP_S / 2))).toBeLessThan(DOTS) // sprung back off it
+  expect(at(FINISH_S)).toEqual(only(draw(done, [], NOW + FINISH_S))) // then just as it is drawn still
+})
+
+test('the model says what it costs, where the run recorded it', () => {
+  const [priced, unpriced] = show([
+    run('a', { log: READ, model_name: 'Muse Spark 1.2', price: 0.5, effort: null, started: iso(30) }),
+    run('b', { log: READ, model_name: 'GLM-5.3-Flash', effort: null, started: iso(20) }),
+  ])
+  expect(priced).toContain('droid-review · Muse Spark 1.2 (0.5x)')
+  expect(unpriced).toContain('droid-review · GLM-5.3-Flash ')
+  expect(unpriced).not.toContain('x)')
 })

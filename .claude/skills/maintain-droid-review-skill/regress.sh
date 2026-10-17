@@ -95,6 +95,7 @@ check "session last: says continuing"      grep -q '^continuing ' "$t/o2.err"
 check "session last: records what it continues" json "$m2" "m['continues']['review']=='$md'"
 check "session last: same model"           json "$m2" 'm["model"]=="glm-5.3-flash" and m["effort"] is None'
 check "review: droid's name for the model" json "$m" 'm["model_name"]=="GLM-5.3-Flash"'
+check "review: records a price (none from the stub)" json "$m" '"price" in m'
 check "review: round 1, no effort pinned"  json "$m" 'm["round"]==1 and m["effort"] is None'
 check "session last: round 2"              json "$m2" 'm["round"]==2'
 check "session last: title says round 2"   grep -qx '# droid review, round 2' "$(sed -n 1p "$t/o2")"
@@ -114,6 +115,7 @@ check "unknown model: exit 2, says so"     sh -c "[ '$RC' = 2 ] && grep -q \"dro
 run "$t/o2f" --base master glm --effort nonsense
 check "unknown effort: exit 2, lists the levels" sh -c "[ '$RC' = 2 ] && grep -q 'takes reasoning effort .*, not .nonsense.' '$t/o2f.err'"
 "$d" --efforts > "$t/efforts" 2>&1   # the real droid: the registry is read from its binary
+check "catalog: models have a price"        grep -Eq '^glm-5.3-flash .* [0-9.]+x' "$t/efforts"
 check "catalog: every built-in model has its levels" sh -c "grep -q '^glm-5.3-flash ' '$t/efforts' && ! grep -v '^custom:' '$t/efforts' | grep -q 'droid gives none'"
 check "neither started droid"              sh -c "! grep -q stream-json '$t/calls'"
 
@@ -232,6 +234,7 @@ check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane" > "$t/o9" 2>&1; RC=$?
 check "feedback: exit 0"                   [ "$RC" = 0 ]
 check "feedback: metadata kind feedback"   json "$(newest_meta)" 'm["kind"]=="feedback" and m["asked"]=="is this sane"'
+check "feedback --base: points at the change" grep -q 'The change in question is this branch against master' "$t/calls"
 
 # 9. Notes and the history. A note on the first review must not make it the
 # newest file, which `--session last` would then continue.
@@ -243,6 +246,15 @@ check "note: under ## Response in the review" sh -c "grep -q '^## Response$' '$m
 check "note: newest review is unchanged"   [ "$(ls -t .droid-reviews/*.md | grep -v -- '-multi\.md$' | head -1)" = "$newest_before" ]
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --note last "applied both" > /dev/null 2>&1; RC=$?
 check "note: through droid-feedback, last" sh -c "[ $RC = 0 ] && grep -q '\"applied both\"' \"\$(ls -t .droid-reviews/*.json | head -1)\""
+: > "$t/calls"
+PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" "what are the ranks in tft" > "$t/o9b" 2>&1; RC=$?
+check "plain feedback: exit 0"             [ "$RC" = 0 ]
+check "plain feedback: the ask alone"      sh -c "grep -q 'what are the ranks in tft' '$t/calls' && ! grep -qiE 'change in question|checks|AGENTS.md' '$t/calls'"
+check "plain feedback: no scope recorded"  json "$(newest_meta)" 'm["scope"]=="none" and m["base"] is None and m.get("diff") is None'
+check "plain feedback: header says so"     grep -q '^- scope: none: the ask alone$' "$(grep '\.md$' "$t/o9b" | head -1)"
+: > "$t/calls"
+PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --models glm,gemini "same ask, two models" > "$t/o9c" 2>&1; RC=$?
+check "plain feedback fan-out: exit 0, no base" sh -c "[ '$RC' = 0 ] && ! grep -qiE 'change in question|checks' '$t/calls'"
 PATH="$t/bin:$PATH" "$d" --note "$md" > /dev/null 2>&1; RC=$?
 check "note: needs a line"                 [ "$RC" = 2 ]
 PATH="$t/bin:$PATH" "$d" --note nope "x" > "$t/n2" 2>&1; RC=$?

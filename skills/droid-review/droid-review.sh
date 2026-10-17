@@ -5,7 +5,7 @@
 #
 #   droid-review.sh                       # droid's /review on this branch vs the default branch
 #   droid-review.sh "the auth changes"    # same, with something to weight
-#   droid-review.sh --feedback "<ask>"    # not /review: ask droid for anything, in its own words
+#   droid-review.sh --feedback "<ask>"    # not /review: the ask alone, as typed; --base/--uncommitted point it at a change
 #   droid-review.sh --base origin/main
 #   droid-review.sh --uncommitted         # only the working tree
 #   droid-review.sh luna                  # a shortcut: gpt-6-luna at droid's default effort
@@ -227,7 +227,8 @@ BASE="${DROID_REVIEW_BASE:-}"
 MODEL="${DROID_REVIEW_MODEL:-}"
 NAMED_MODEL=""   # set when the caller named one; a continuation then keeps it
 EFFORT=""
-SCOPE="branch"
+SCOPE="branch"   # feedback: "none" unless --base or --uncommitted points it at a change
+BASE_GIVEN=""
 CHECKS=""
 SESSION=""
 MODELS=""        # comma list: fan out, one child run per model
@@ -240,7 +241,7 @@ COMPARE=""       # --compare [review]: a review against the repo now, then exit
 ASK=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base)    need "$@"; BASE="$2";    shift 2 ;;
+    --base)    need "$@"; BASE="$2"; BASE_GIVEN=1; shift 2 ;;
     --model)   need "$@"; MODEL="$2"; NAMED_MODEL=1; shift 2 ;;
     --effort)  need "$@"; EFFORT="$2";  shift 2 ;;
     --checks)  need "$@"; CHECKS="$2";  shift 2 ;;
@@ -284,66 +285,24 @@ if [ -n "$EFFORTS" ] || [ -n "$WHATS_NEW" ]; then
   [ -n "$CAT" ] || die "could not read droid's model list"
   SC="$(for s in $SHORTCUTS; do echo "$s $(shortcut "$s")"; done)"
   want="$(shortcut "$EFFORTS" || echo "$EFFORTS")"
-  CAT="$CAT" SC="$SC" DROID_VERSION="$(droid --version 2>/dev/null || true)" python3 -c '
-import datetime as dt, mmap, os, re, shutil, sys
+  CAT="$CAT" SC="$SC" HERE="$(dirname "$SELF")" DROID_VERSION="$(droid --version 2>/dev/null || true)" python3 -c '
+import datetime as dt, os, re, sys
 mode, want = sys.argv[1:3]
 now = dt.datetime.now(dt.timezone.utc)
-day = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 cat = [l.split() for l in os.environ["CAT"].splitlines() if l.strip()]
 names = {}
 for l in os.environ["SC"].splitlines():
     s, mid = l.split()
     names.setdefault(mid, []).append(s)
-info, family = {}, {}
-try:
-    with open(os.path.realpath(shutil.which("droid")), "rb") as f:
-        t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-    # Match from the literal: a leading [\w$]+ makes the scan of the binary take seconds.
-    promos = {}
-    for m in re.finditer(rb"=\{discount:([\d.]+),startsAt:new Date\(\"([^\"]+)\"\),expiresAt:new Date\(\"([^\"]+)\"\),label:\"([^\"]*)\"\}", t):
-        name = re.search(rb"([\w$]+)$", t[max(0, m.start() - 40):m.start()])
-        if name:
-            promos[name.group(1).decode()] = (float(m.group(1)), day(m.group(2).decode()), day(m.group(3).decode()), m.group(4).decode())
-    # Keys are quoted ("gpt-6-sol":{id:...) or bare (inkling:{id:...).
-    for m in re.finditer(rb":\{id:\"([\w.:-]+)\",(?:newUntil:new Date\(\"([^\"]*)\"\),)?name:", t):
-        mid = m.group(1).decode()
-        key = re.search(rb"[{,]\"?([\w.:-]+)\"?$", t[max(0, m.start() - 80):m.start()])
-        if not key or key.group(1) != m.group(1) or mid in info:
-            continue
-        body = t[m.end():m.end() + 4000].decode("latin-1")
-        nxt = re.search(r",\"?[\w.:-]+\"?:\{id:\"", body)
-        body = body[:nxt.start()] if nxt else body
-        g = lambda rx: (re.search(rx, body) or [None, None])[1]
-        price = g(r"cost:\{tokenMultiplier:([\d.]+)")
-        promo = None
-        for ref in (g(r"promotions:\[([^\]]*)\]") or "").split(","):
-            p = promos.get(ref.strip())
-            if p and p[1] <= now < p[2]:
-                promo = p
-                break
-        new = g(r"newUntil:new Date\(\"([^\"]+)\"\)") or (m.group(2) or b"").decode() or None
-        info[mid] = {
-            "price": float(price) if price else None, "promo": promo,
-            "new": new[:10] if new and now < day(new) else None,
-            "dep": g(r"deprecation:\{date:\"([^\"]+)\""), "fallback": g(r"fallbackModelId:\"([^\"]+)\""),
-        }
-    # Families, newest generation first: {generations:[{id:"glm-5.3"},{id:"glm-5.2",variants:["glm-5.2-fast"]},...]}
-    first = t.find(b"generations:[{id:")
-    if first >= 0:
-        for fam in re.findall(rb"generations:\[((?:\{[^{}]*\},?)+)\]", t[first:first + 30000]):
-            gens = [(g.decode(), [v.decode() for v in re.findall(rb"\"([^\"]+)\"", vs)])
-                    for g, vs in re.findall(rb"\{id:\"([^\"]+)\"(?:,variants:\[([^\]]*)\])?", fam)]
-            for rank, (g, variants) in enumerate(gens):
-                for mid in [g] + variants:
-                    family.setdefault(mid, (rank, gens))
-except (OSError, TypeError, ValueError):
-    pass
+sys.dont_write_bytecode = True   # no __pycache__ beside the installed skill
+sys.path.insert(0, os.environ["HERE"])
+import registry
+day = registry.day
+info, family = registry.read(now)
 fmt = lambda x: ("%g" % x) + "x"
 def price(mid):
-    i = info.get(mid) or {}
-    if i.get("price") is None:
-        return "-"
-    return fmt(i["price"] * (1 - i["promo"][0])) if i.get("promo") else fmt(i["price"])
+    p = registry.price(info.get(mid))
+    return "-" if p is None else fmt(p)
 def notes(mid):
     i, out = info.get(mid) or {}, []
     if i.get("new"):
@@ -415,7 +374,10 @@ if [ -n "$COMPARE" ]; then
   [ ! -f "$ORIG_PWD/$COMPARE" ] || COMPARE="$ORIG_PWD/$COMPARE"
   exec python3 "$(dirname "$SELF")/reviews.py" compare "$COMPARE"
 fi
-[ -n "$BASE" ] || BASE="$(default_base)"
+# Feedback is the ask alone, as droid would take it typed in: no change to
+# look at, unless --base or --uncommitted names one.
+[ "$MODE" = "feedback" ] && [ "$SCOPE" = "branch" ] && [ -z "$BASE_GIVEN" ] && SCOPE="none"
+[ -n "$BASE" ] || [ "$SCOPE" = "none" ] || BASE="$(default_base)"
 
 command -v droid >/dev/null || \
   die "droid CLI not installed: https://docs.factory.ai/droid-cli/quickstart"
@@ -465,7 +427,9 @@ drop_word() { ASK="${ASK#"$1"}"; ASK="${ASK#"${ASK%%[![:space:]]*}"}"; }
 # looked up, and put to droid if the install does not list it. The few ids
 # without a digit (inkling) are found by a plain search of the droid binary's
 # registry: a fifth of a second for a word that is not there, so that an id
-# is never taken for a word and run on the default model. (mmap's find, not
+# is never taken for a word and run on the default model. A model's entry has a
+# shortName after its name; the binary's other {id, name} lists (the readiness
+# checklist's "testing", "docs", "security") do not, and are ordinary words. (mmap's find, not
 # grep: the system grep takes two seconds over the binary.)
 is_model() {
   ! shortcut "$1" >/dev/null || return 0
@@ -478,7 +442,7 @@ is_model() {
 import mmap, os, re, shutil, sys
 with open(os.path.realpath(shutil.which("droid")), "rb") as f:
     t = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-sys.exit(0 if re.search(rb"\{id:\"%s\",(?:newUntil:new Date\(\"[^\"]*\"\),)?name:" % re.escape(sys.argv[1].encode()), t) else 1)' "$1" 2>/dev/null
+sys.exit(0 if re.search(rb"\{id:\"%s\",(?:newUntil:new Date\(\"[^\"]*\"\),)?name:\"[^\"]*\",shortName:" % re.escape(sys.argv[1].encode()), t) else 1)' "$1" 2>/dev/null
   else
     return 1
   fi
@@ -649,7 +613,10 @@ claim_out() {
   done
 }
 
-if [ "$SCOPE" = "uncommitted" ]; then
+WHAT=""
+if [ "$SCOPE" = "none" ]; then
+  :
+elif [ "$SCOPE" = "uncommitted" ]; then
   WHAT="the uncommitted changes in the working tree"
   WHAT+=" (\`git diff\` and \`git diff --cached\`, plus untracked files)"
 else
@@ -684,7 +651,7 @@ run_meta() {
   ROOT="$ROOT" MODE="$MODE" SCOPE="$SCOPE" BASE="$BASE" WHAT="$WHAT" \
   MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
   SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
-  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" \
+  OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" HERE="$(dirname "$SELF")" \
   python3 - "$@" <<'PY'
 import datetime, json, os, re, subprocess, sys
 mode, meta = sys.argv[1], sys.argv[2]
@@ -786,6 +753,17 @@ def model_name(mid):
     except (OSError, subprocess.SubprocessError):
         return None
 
+def model_price(mid):
+    """The token-price multiplier the model costs now, as droid's /model picker
+    shows it (a promotion taken off). None when droid gives none."""
+    if not mid:
+        return None
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.environ["HERE"])
+    import registry
+    info, _ = registry.read(datetime.datetime.now(datetime.timezone.utc))
+    return registry.price(info.get(mid))
+
 def shortstat(*args):
     s = git("diff", "--shortstat", *args) or ""
     out = {}
@@ -823,13 +801,16 @@ if mode == "start":
                 pass
         m["round"] = (prev.get("round") or 1) + 1
     m["model_name"] = model_name(m["model"])
+    m["price"] = model_price(m["model"])
     try:
         r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
             m["droid_version"] = r.stdout.strip() or None
     except (OSError, subprocess.TimeoutExpired):
         pass
-    if m["scope"] == "branch":
+    if m["scope"] == "none":
+        pass   # the ask alone: no change to measure
+    elif m["scope"] == "branch":
         base = env("BASE")
         mb = git("merge-base", base, "HEAD")
         m["base"] = {
@@ -879,7 +860,7 @@ elif mode == "finish":
              "- started: %s" % m.get("started"),
              "- finished: %s (%ss)" % (m["finished"], m.get("duration_s", "?")),
              "- model: %s (reasoning %s)" % (m.get("model"), m.get("effort") or "droid default"),
-             "- scope: %s" % m.get("scope_text")]
+             "- scope: %s" % (m.get("scope_text") or "none: the ask alone")]
     where = "%s at %s" % (m.get("branch") or "detached HEAD", short(m.get("head")))
     if m.get("head_subject"):
         where += ' "%s"' % m["head_subject"]
@@ -947,11 +928,12 @@ fan_out() {
   tmpd="$(mktemp -d)"   # global: the EXIT trap outlives this function
   trap 'rm -rf "$tmpd"' EXIT
   cp "$SELF" "$tmpd/droid-review.sh"
+  cp "$(dirname "$SELF")/registry.py" "$tmpd/registry.py"   # what the copy reads model prices with
   [ -t 2 ] && board=1 && cols="$(tput cols 2>/dev/null || echo 100)"
 
-  # What every child gets besides its --model. --base is always set by now,
-  # which also keeps this array non-empty (bash 3.2 + set -u).
-  local args=(--base "$BASE")
+  # What every child gets besides its --model.
+  local args=()
+  [ "$SCOPE" = "branch" ] && args+=(--base "$BASE")
   [ "$MODE" = "feedback" ] && args+=(--feedback)
   [ "$SCOPE" = "uncommitted" ] && args+=(--uncommitted)
   [ -n "$EFFORT" ] && args+=(--effort "$EFFORT")
@@ -968,7 +950,7 @@ fan_out() {
       rc=0
       _DROID_REVIEW_CHILD="$tmpd/$n.log" _DROID_REVIEW_STAMP="$STAMP" \
         _DROID_REVIEW_CATALOG="$CATALOG" \
-        bash "$tmpd/droid-review.sh" "${args[@]}" --model "$m" \
+        bash "$tmpd/droid-review.sh" ${args[@]+"${args[@]}"} --model "$m" \
         > "$tmpd/$n.out" 2> "$tmpd/$n.err" || rc=$?
       echo "$rc" > "$tmpd/$n.rc.tmp" && mv "$tmpd/$n.rc.tmp" "$tmpd/$n.rc"
     ) &
@@ -1063,7 +1045,7 @@ fan_out() {
     echo
     echo "- started: $t0_iso"
     echo "- finished: $(date +%Y-%m-%dT%H:%M:%S%z)"
-    echo "- scope: $WHAT"
+    echo "- scope: ${WHAT:-none: the ask alone}"
     echo "- branch: ${BRANCH:-detached HEAD} at $(git rev-parse --short HEAD)"
     [ -z "$ASK" ] || echo "- asked: $ASK"
     [ -z "$EFFORT" ] || echo "- effort: $EFFORT"
@@ -1119,6 +1101,8 @@ TXT
 if [ -n "$SESSION" ]; then
   if [ -n "$ASK" ]; then
     PROMPT="$ASK"
+  elif [ -z "$WHAT" ]; then
+    PROMPT="Look again at your earlier answer against the repo as it is now: say what still holds, what has changed, and anything new."
   else
     LINES=(
       "Re-review the current state of $WHAT."
@@ -1129,15 +1113,18 @@ if [ -n "$SESSION" ]; then
     PROMPT="$(printf '%s ' "${LINES[@]}")"
   fi
 elif [ "$MODE" = "feedback" ]; then
-  LINES=(
-    "The change under review is $WHAT."
-    "$ASK"
-    "Do not reason off the diff alone: run the checks that bear on what you were"
-    "asked, and cite them."
+  # The ask as the user put it: what droid looks at and whether it runs
+  # anything is for the ask to say. Only --base / --uncommitted add the change,
+  # and --checks the checks.
+  LINES=()
+  [ -n "$WHAT" ] && LINES+=("The change in question is $WHAT.")
+  LINES+=("$ASK")
+  [ -n "$CHECKS" ] && LINES+=(
+    "Run the checks that bear on what you were asked, and cite them."
     "$(checks_block)"
-    "Do not modify any tracked files or commit."
-    "End with a short 'Checks run' list naming each command and its result, or 'none'."
+    "End with a short 'Checks run' list naming each command and its result."
   )
+  LINES+=("Do not modify any tracked files or commit.")
   PROMPT="$(printf '%s\n' "${LINES[@]}")"
 else
   LINES=(

@@ -1,6 +1,6 @@
 ---
 name: droid-feedback
-description: Ask Factory's droid for a second opinion on the branch in plain words — the copy, the API shape, a design question, anything that is not a structured code review — then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
+description: Ask Factory's droid anything in plain words — the copy, the API shape, a design question, a question that has nothing to do with the code — with the ask sent as the user wrote it, then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
 argument-hint: "[glm|gemini|luna|auto|fable|opus|sonnet|astra|sol|grok|qwen|kimi|deepseek|argon|muse|nemotron|a,b,c] [effort] <ask>"
 ---
 
@@ -8,7 +8,14 @@ argument-hint: "[glm|gemini|luna|auto|fable|opus|sonnet|astra|sol|grok|qwen|kimi
 
 Same loop as droid-review, different ask. `droid-review` runs droid's `/review`,
 which is a code review and reports like one. This skill sends droid whatever
-the user actually wants looked at, in their words, and gets prose back.
+the user actually asked, in their words, and gets prose back.
+
+**The ask goes as it is.** Nothing is added but one line telling droid not to
+change tracked files: no branch, no diff, no instruction to run the repo's
+checks. droid still runs in the repo and can read it, so an ask about the code
+works; it just is not pointed at a change unless you say so. `--base <ref>` or
+`--uncommitted` adds that change ("The change in question is..."), and
+`--checks <file>` asks it to run and cite the checks that file lists.
 
 Reach for it when the question is not "what's broken": the user-facing copy, a
 naming pass, whether an approach is sound, whether a doc matches the code, how
@@ -25,9 +32,13 @@ whichever directory this SKILL.md was loaded from, and substitute it below.
 
 ```bash
 .claude/skills/droid-feedback/droid-feedback.sh "<the user's ask, in their words>"
-.claude/skills/droid-feedback/droid-feedback.sh --uncommitted "<ask>"
 .claude/skills/droid-feedback/droid-feedback.sh "gemini <ask>"
+.claude/skills/droid-feedback/droid-feedback.sh --uncommitted "<ask>"   # about the working tree's changes
+.claude/skills/droid-feedback/droid-feedback.sh --base main "<ask>"     # about this branch against main
 ```
+
+Add `--uncommitted` or `--base` only when the ask is about a change and does
+not already say which; never on a question the code has no part in.
 
 The ask is required and carries the whole framing — what to look at, what
 counts, and how to report it. Pass the user's `$ARGUMENTS` through as-is where
