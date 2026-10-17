@@ -3,22 +3,24 @@
 // end of its .log (the turn and the tool calls droid has made). Nothing here
 // reads a file or the clock: register.tsx does, and hands the result in.
 //
-//   ⠹ droid-review · GLM-5.3-Flash                ⠹ 25s / ~40s                 reading files · turn 3 · Read src/auth.ts
-//   ⠹ droid-review · Gemini 3.8 Flash (round 2)   ⠹ 4m 12s / ~1m 30s           running checks for 50s · turn 9 · Execute npm test
-//   ✓ droid-feedback · GPT-6 Luna max             ✓ 2m 14s · 21 turns          awaiting triage for 3m...
+//   ⠹ droid-review · GLM-5.3-Flash (0.06x)        ⣤⣤⣤⣤⣤⣤⣤⣤⣴⣀⣀⣀⣀⣀⣀⣀⡆⣀⣀⣀ 25s / ~40s              reading files · turn 3 · Read src/auth.ts
+//   ⠹ droid-review · Gemini 3.8 Flash (round 2)   ⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣴⡆⣀⣀⣀ 4m 12s / ~1m 30s        running checks for 50s · turn 9 · Execute npm test
+//   ✓ droid-feedback · GPT-6 Luna max             ⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤ 2m 14s · 21 turns       awaiting triage for 3m...
 //
-// After the dot comes the model, with the effort if one was named; "(round 2)"
-// is a re-check (--session), the second round.
+// After the dot comes the model, what it cost (its token-price multiplier when
+// the run started), and the effort if one was named; "(round 2)" is a re-check
+// (--session), the second round.
 //
-// The bar is one piece: its text sits inside it and its ground fills from the
-// left as time passes, measured against the median time of this model's
-// finished runs of the same kind (review or feedback, first round or re-check)
-// in the same folder. A re-check takes a fraction of a first review, and
-// feedback as long as its ask, so each is timed against its own kind. The bar
-// reaches four fifths at that estimate and stops there, still blue, however
-// late the run is: how much is left is not known, and the open fifth says so.
-// Only a finished run fills the bar: the same bar then holds the result.
-// Without any history a block drifts across it instead.
+// The bar is a line of braille dots that a ribbon grows along as time passes,
+// measured against the median time of this model's finished runs of the same
+// kind (review or feedback, first round or re-check) in the same folder. A
+// re-check takes a fraction of a first review, and feedback as long as its
+// ask, so each is timed against its own kind. The ribbon reaches four fifths
+// at that estimate and stops there, however late the run is: how
+// much is left is not known, and the open fifth says so. Only a finished run
+// fills the bar, in the result's colour. Without any history a blob travels
+// the line instead. Beside the bar, the time so far against the estimate, or
+// how the run ended.
 //
 // After the bar comes what droid is doing, worked out from the kinds of tool it
 // called in its last three turns, not from what the calls said: reading files
@@ -35,7 +37,7 @@
 // "awaiting triage for 3m...", then "triaged 2m ago:" and the note the triaging
 // agent left (droid-review.sh --note).
 
-import type { DroidReviewsRow, DroidReviewsSeg } from '../types'
+import type { DroidReviewsEnded, DroidReviewsPlan, DroidReviewsRow, DroidReviewsRunning, DroidReviewsSeg } from '../types'
 
 export type Meta = {
   status?: string
@@ -50,6 +52,8 @@ export type Meta = {
   turns?: number | null
   error?: string | null
   pid?: number | string | null
+  /** The model's token-price multiplier when the run started, as droid's /model picker showed it. */
+  price?: number | null
   responses?: unknown
 }
 
@@ -80,23 +84,30 @@ const RECENT_TURNS = 3
 // Four of a braille cell's eight dots lit, the four turning round the cell a
 // dot at a time (the ring is dots 1 4 5 6 8 7 3 2, clockwise from top left).
 const SPIN = '⠹⢸⣰⣤⣆⡇⠏⠛'
-export const BAR_W = 28 // cells in the bar: room for "⢸ 59m 59s / ~59m 59s" and "interrupted after 1h 2m"
+const SPIN_HZ = 9 // frames a second: one more than a turn, so where the band is drawn once a second it steps one frame
+// The bar is braille: each cell two dots across and four down, so its 20 cells
+// are a picture 40 dots wide that the bar is drawn in, a column at a time.
+export const BAR_W = 20
+export const DOTS = 2 * BAR_W
+export const STOP = Math.round((0.8 * DOTS) / 2) * 2 // four fifths, on a whole cell: the stop is a clean edge
+export const TEXT_W = 23 // what the bar says beside it: room for "59m 59s / ~59m 59s" and "interrupted after 1h 2m"
 
 const GREEN = '#3fb950'
 const AMBER = '#e6b450'
 const RED = '#f85149'
 const GREY = '#8a8a8a'
 // The band's own colour, periwinkle: the model's name, a running row's
-// spinner, a finished review's ✓, and (as ON_BLUE and ON_DONE) the bar's ground.
-// Not one of the colours that say how a run went (green, amber, red).
+// spinner, a finished review's ✓ and its bar. Not one of the colours that say
+// how a run went (green, amber, red).
 const BLUE = '#89b4fa'
-const INK = '#ffffff'
 type Rgb = readonly [number, number, number]
-const ON_BLUE: Rgb = [87, 106, 138] // a running bar: BLUE itself, washed thin over the empty ground
-const ON_DONE: Rgb = [44, 82, 148] // a finished review's bar: the same blue, deep
-const ON_AMBER: Rgb = [140, 98, 20]
-const ON_RED: Rgb = [150, 44, 40]
-const ON_EMPTY: Rgb = [46, 46, 46]
+const RIBBON: Rgb = [104, 136, 196] // a running bar: BLUE, a little dimmed, so it brightens as it finishes
+const FINISHED: Rgb = [137, 180, 250] // BLUE
+const FAILED: Rgb = [248, 81, 73] // RED
+const HALTED: Rgb = [230, 180, 80] // AMBER
+const TRACK: Rgb = [68, 68, 68] // the line the bar runs along
+const SHINE: Rgb = [196, 216, 255] // the swell that runs along a running bar
+const SQUEEZE: Rgb = [236, 242, 255] // where a bar presses against what stops it
 
 const hex = (c: Rgb) => '#' + c.map(x => Math.round(x).toString(16).padStart(2, '0')).join('')
 const mix = (a: Rgb, b: Rgb, t: number): Rgb => [0, 1, 2].map(i => a[i]! + (b[i]! - a[i]!) * t) as unknown as Rgb
@@ -159,38 +170,163 @@ function median(values: readonly number[]): number | null {
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
 }
 
+/** One column of the bar: how many of its four dots are lit, from the bottom, and in what colour. */
+type Column = { h: number; ink: Rgb }
+
+const SETTLE_S = 1.6
+const SHINE_EVERY_S = 2.8
+const SHINE_FOR_S = 1.4
+const FLY_S = 1.3
+const HIT_S = 0.24
+const RUSH_S = 0.35
+/** How long a bar takes to finish once its run is seen to end. */
+export const FINISH_S = RUSH_S + SETTLE_S
+
+// A dot's bit in its braille cell, by column (left, right) and height (bottom up).
+const BIT = [
+  [0x40, 0x04, 0x02, 0x01],
+  [0x80, 0x20, 0x10, 0x08],
+] as const
+const empty = (): Column[] => Array.from({ length: DOTS }, () => ({ h: 1, ink: TRACK }))
+
 /**
- * One bar with its text inside, " ⢸ 25s / ~40s      ", the first fraction of
- * its cells on the ground colour. The cell at the edge of the fill shades in
- * as it is covered (a little ahead, to be seen), so the bar moves at every
- * tick and not only when a whole cell fills (on a four-minute estimate, once
- * in eleven seconds). A null fraction is a run with nothing to measure
- * against: a block drifts across instead.
+ * The bar's columns as braille, two to a cell, then what it says beside it.
+ * A cell takes the colour of its taller column: one colour to a cell is all a
+ * terminal draws. So where the ribbon or the blob shares a cell with
+ * the track, the track's dot there is left out, which also sets the shape off
+ * from the line. A shape stands 2 or 4 dots tall, never 3: a cell whose
+ * columns differ by one dot reads as a stray odd glyph (⣴, ⡆), so heights are
+ * rounded to even here, the one place every shape passes. The track's single
+ * dot stays as it is. Cells of one colour run together into one segment.
  */
-function bar(text: string, ground: Rgb, fraction: number | null, now: number): DroidReviewsSeg[] {
-  const cells = (' ' + text).padEnd(BAR_W).slice(0, BAR_W)
-  let parts: [Rgb, string][]
-  if (fraction === null) {
-    const at = Math.floor(now) % (BAR_W - 3)
-    parts = [
-      [ON_EMPTY, cells.slice(0, at)],
-      [ground, cells.slice(at, at + 4)],
-      [ON_EMPTY, cells.slice(at + 4)],
-    ]
-  } else {
-    const full = Math.max(0, Math.min(BAR_W, BAR_W * fraction))
-    const n = Math.floor(full)
-    // ** 0.6: a straight mix keeps the first half of a cell too close to empty to see.
-    parts = [
-      [ground, cells.slice(0, n)],
-      [mix(ON_EMPTY, ground, (full - n) ** 0.6), cells.slice(n, n + 1)],
-      [ON_EMPTY, cells.slice(n + 1)],
-    ]
+function draw(cols: readonly Column[], text: string): DroidReviewsSeg[] {
+  const out: DroidReviewsSeg[] = []
+  const apart = (a: Column, b: Column) => (a.ink === TRACK && b.ink !== TRACK ? { ...a, h: 0 } : a)
+  const even = (col: Column) => (col.h <= 1 ? col : { ...col, h: 2 * Math.round(col.h / 2) })
+  for (let c = 0; c < BAR_W; c++) {
+    const [l, r] = [even(apart(cols[2 * c]!, cols[2 * c + 1]!)), even(apart(cols[2 * c + 1]!, cols[2 * c]!))]
+    let bits = 0
+    for (const [side, col] of [l, r].entries()) for (let y = 0; y < Math.min(4, col.h); y++) bits |= BIT[side]![y]!
+    const color = hex((r.h > l.h ? r : l).ink)
+    const glyph = String.fromCharCode(0x2800 + bits)
+    const last = out.at(-1)
+    if (last?.color === color) last.text += glyph
+    else out.push({ text: glyph, color })
   }
-  return parts.filter(([, c]) => c).map(([g, c]) => ({ text: c, color: INK, bg: hex(g), bold: true }))
+  out.push({ text: ' ' + text.padEnd(TEXT_W) })
+  return out
 }
 
-const RUNNING_FULL = Math.round(0.8 * BAR_W) / BAR_W // four fifths, on a whole cell: the stop is a clean edge
+/** Lays a ribbon two dots high over the columns before `edge`. */
+function ribbon(cols: Column[], edge: number, ink: (x: number) => Rgb): void {
+  const end = Math.max(0, Math.min(DOTS, Math.round(edge)))
+  for (let x = 0; x < end; x++) cols[x] = { h: 2, ink: ink(x) }
+}
+
+/**
+ * A bar meeting a wall: how far it has sprung back off it, in dots, and how
+ * hard it is pressed against it (1 at each touch), `s` seconds after the first
+ * touch. Each hop is lower than the one before; by SETTLE_S it is at rest.
+ */
+function bounce(s: number, height: number): { off: number; squeeze: number } {
+  if (s >= SETTLE_S) return { off: 0, squeeze: 0 }
+  const decay = Math.exp(-s / 0.45)
+  const hop = Math.abs(Math.sin((Math.PI * s) / 0.38))
+  return { off: height * decay * hop, squeeze: decay * (1 - hop) ** 3 }
+}
+
+/** The columns just short of `edge` pressed against what stops it: they flash white, at the ribbon's own height (a full-height block there reads as a smudge, not a squeeze). */
+function press(cols: Column[], edge: number, squeeze: number): void {
+  if (squeeze <= 0.05) return
+  for (let d = 0; d < 3; d++) {
+    const x = Math.round(edge) - 1 - d
+    const col = cols[x]
+    if (!col || col.ink === TRACK) continue
+    const k = squeeze * (1 - d / 3)
+    cols[x] = { ...col, ink: mix(col.ink, SQUEEZE, 0.8 * k) }
+  }
+}
+
+/** How far a running bar has filled at `t`, in dots: up to the stop at the estimate. */
+function reach(m: DroidReviewsRunning, t: number): number {
+  return m.estimate ? STOP * Math.max(0, Math.min(1, (t - m.started) / m.estimate)) : 0
+}
+
+/**
+ * Where the blob of a bar with no estimate is at `t`, in dots: it crosses in
+ * FLY_S, stretched long and flat mid-flight, then meets the wall for HIT_S,
+ * squashed narrow against it and flashing, and goes back.
+ */
+function flight(t: number): { from: number; width: number; squeeze: number } {
+  const W = 6
+  const u = t % (2 * (FLY_S + HIT_S))
+  const leg = u < FLY_S + HIT_S ? u : u - FLY_S - HIT_S
+  const isLeft = u >= FLY_S + HIT_S // flying left, then at the left wall
+  if (leg < FLY_S) {
+    const q = leg / FLY_S
+    const width = W + 5 * Math.sin(Math.PI * q)
+    return { from: (DOTS - width) * (isLeft ? 1 - q : q), width, squeeze: 0 }
+  }
+  const squeeze = Math.sin((Math.PI * (leg - FLY_S)) / HIT_S)
+  const width = W * (1 - 0.6 * squeeze)
+  return { from: isLeft ? 0 : DOTS - width, width, squeeze }
+}
+
+/**
+ * A running bar at `t`. Still (where the band is drawn once a second), a
+ * ribbon grows along the track toward the stop at four fifths, or with nothing to
+ * measure against, a blob drifts along it. In motion, a swell runs along the
+ * ribbon; the ribbon hits the stop at the estimate, flashes against it and
+ * springs back a few times before it rests; and the blob flies from wall to
+ * wall, long in flight and squashed narrow against each wall.
+ */
+function running(m: DroidReviewsRunning, t: number, isMoving: boolean): DroidReviewsSeg[] {
+  const elapsed = Math.max(0, t - m.started)
+  const text = short(elapsed) + (m.estimate ? ` / ~${short(m.estimate)}` : '')
+  const cols = empty()
+  if (!m.estimate) {
+    const { from, width, squeeze } = isMoving ? flight(t) : { from: (2 * Math.floor(t)) % (DOTS - 5), width: 6, squeeze: 0 }
+    for (let x = Math.round(from); x < Math.round(from + width) && x < DOTS; x++) {
+      cols[x] = { h: 2, ink: mix(RIBBON, SQUEEZE, 0.8 * squeeze) }
+    }
+    return draw(cols, text)
+  }
+  if (!isMoving) {
+    ribbon(cols, reach(m, t), () => RIBBON)
+    return draw(cols, text)
+  }
+  const { off, squeeze } = elapsed >= m.estimate ? bounce(elapsed - m.estimate, 3) : { off: 0, squeeze: 0 }
+  const edge = reach(m, t) - off
+  const swell = -3 + ((t % SHINE_EVERY_S) / SHINE_FOR_S) * (edge + 6)
+  ribbon(cols, edge, x => mix(RIBBON, SHINE, Math.max(0, 1 - Math.abs(x + 0.5 - swell) / 3) ** 2))
+  for (let x = 0; x < Math.round(edge) - 1; x++) if (Math.abs(x + 0.5 - swell) < 1.5) cols[x] = { ...cols[x]!, h: 4 }
+  press(cols, edge, squeeze)
+  return draw(cols, text)
+}
+
+/**
+ * How a run that was seen to end finishes its bar, `s` seconds after: the
+ * ribbon rushes on from where it was, quickening, slams into the far end,
+ * flashes against it and springs back while it takes the result's colour.
+ */
+function finishing(text: string, ground: Rgb, from: number, s: number): DroidReviewsSeg[] {
+  const cols = empty()
+  if (s < RUSH_S) {
+    ribbon(cols, from + (DOTS - from) * (s / RUSH_S) ** 2, () => RIBBON)
+    return draw(cols, text)
+  }
+  const after = s - RUSH_S
+  const { off, squeeze } = bounce(after, 4)
+  const ink = mix(mix(RIBBON, ground, Math.min(1, after / 0.5)), SQUEEZE, 0.4 * Math.exp(-after / 0.3))
+  ribbon(cols, DOTS - off, () => ink)
+  press(cols, DOTS - off, squeeze)
+  return draw(cols, text)
+}
+
+/** A finished run's bar: the ribbon whole, in the result's colour. */
+function ended(text: string, ground: Rgb): DroidReviewsSeg[] {
+  return draw(Array.from({ length: DOTS }, () => ({ h: 2, ink: ground })), text)
+}
 
 /** A command without the "cd somewhere &&" it opens with: what it runs. */
 const uncd = (command: string) => command.replace(/^(?:\(?\s*cd\s+\S+\s*(?:&&|;)\s*)+/, '')
@@ -265,12 +401,17 @@ function triage(m: Meta, endedAgo: number | null, now: number): [DroidReviewsSeg
 function who(m: Meta): { label: string; model: string; aside: string; width: number } {
   const label = m.kind === 'feedback' ? 'droid-feedback' : 'droid-review'
   const model = m.model_name || m.model || '?'
-  const aside = (m.effort ? ` ${m.effort}` : '') + (isRecheck(m) ? ` (round ${m.round})` : '')
+  const price = typeof m.price === 'number' ? ` (${+m.price.toFixed(4)}x)` : ''
+  const aside = price + (m.effort ? ` ${m.effort}` : '') + (isRecheck(m) ? ` (round ${m.round})` : '')
   return { label, model, aside, width: `${label} · ${model}${aside}`.length }
 }
 
-/** The rows to show now (seconds since the epoch), oldest run first; none when nothing is running or recent. */
-export function rows(runs: readonly Run[], hist: History, now: number): DroidReviewsRow[] {
+/**
+ * The rows to show now (seconds since the epoch), oldest run first; none when
+ * nothing is running or recent. Each is what the row says, but for its bar
+ * and spinner, which paint() works out for any moment.
+ */
+export function plan(runs: readonly Run[], hist: History, now: number): DroidReviewsPlan[] {
   const seen = runs.map(run => {
     const { meta, logAt } = run
     const silent = logAt === null ? 0 : now - logAt
@@ -293,7 +434,7 @@ export function rows(runs: readonly Run[], hist: History, now: number): DroidRev
   shown.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0))
   const width = Math.max(0, ...shown.map(s => who(s.run.meta).width))
 
-  return shown.map(({ run, status, silent, ended, triaged }) => {
+  return shown.map(({ run, status, silent, ended, triaged }): DroidReviewsPlan => {
     const m = run.meta
     const w = who(m)
     // "droid-review · Gemini 3.8 Flash max (round 2)": the command that ran,
@@ -306,49 +447,75 @@ export function rows(runs: readonly Run[], hist: History, now: number): DroidRev
       { text: w.model, color: BLUE },
       { text: w.aside + ' '.repeat(width - w.width), color: GREY },
     ]
-    const row = (lead: DroidReviewsSeg, meter: DroidReviewsSeg[], tail: DroidReviewsSeg[]): DroidReviewsRow => ({
-      key: run.name,
-      segs: [lead, { text: ' ' }, ...name, { text: '  ' }, ...meter, { text: '  ' }, ...tail].filter(s => s.text),
-    })
+    const ending = (lead: DroidReviewsSeg, ground: DroidReviewsEnded['ground'], text: string, tail: DroidReviewsSeg[]) =>
+      ({ key: run.name, lead, name, meter: { kind: 'ended', ground, text }, tail }) as const
 
     if (status === 'running') {
       const elapsed = since(m.started, now) ?? 0
-      // The spinner leads the row and the bar: its time then starts in the
-      // column a finished bar's does after its ✓.
-      const spin = SPIN[Math.floor(now) % SPIN.length]!
-      const estimate = median(hist.get(timedAs(m)) ?? [])
       const last = [...run.lines].reverse().map(l => CALL.exec(l)).find(Boolean)
       let doing = last ? `turn ${last[1]} · ${`${last[2]} ${uncd(last[3]!)}`.trim()}` : ''
       const nowDoing = phase(run.lines, silent, m.kind || 'review')
       const isHeld = silent >= QUIET_S && nowDoing !== 'starting' // thinking for, running checks for
       if (isHeld) doing = `for ${short(silent)}${doing ? ' · ' + doing : ''}`
-      const meter = estimate
-        ? bar(`${spin} ${short(elapsed)} / ~${short(estimate)}`, ON_BLUE, RUNNING_FULL * Math.min(1, elapsed / estimate), now)
-        : bar(`${spin} ${short(elapsed)}`, ON_BLUE, null, now)
-      return row({ text: spin, color: BLUE }, meter, [
-        { text: nowDoing },
-        { text: doing ? (isHeld ? ' ' : ' · ') + doing : '', color: GREY },
-      ])
+      return {
+        key: run.name,
+        lead: null,
+        name,
+        meter: { kind: 'running', started: now - elapsed, estimate: median(hist.get(timedAs(m)) ?? []) },
+        tail: [{ text: nowDoing }, { text: doing ? (isHeld ? ' ' : ' · ') + doing : '', color: GREY }],
+      }
     }
 
     const took = typeof m.duration_s === 'number' ? short(m.duration_s) : '?'
     const when = ago(ended ?? 0)
     if (status === 'ok') {
-      return row({ text: '✓', color: BLUE, bold: true }, bar(`✓ ${took} · ${m.turns ?? '?'} turns`, ON_DONE, 1, now), triaged)
+      return ending({ text: '✓', color: BLUE, bold: true }, 'done', `${took} · ${m.turns ?? '?'} turns`, triaged)
     }
     if (status === 'failed') {
       const err = String(m.error ?? '').split(/\s+/).filter(Boolean).join(' ')
-      return row({ text: '✗', color: RED, bold: true }, bar(`failed after ${took}`, ON_RED, 1, now), [
+      return ending({ text: '✗', color: RED, bold: true }, 'red', `failed after ${took}`, [
         { text: when + (err ? ` · ${err}` : ''), color: GREY },
       ])
     }
     if (status === 'interrupted') {
-      return row({ text: '✗', color: AMBER, bold: true }, bar(`interrupted after ${took}`, ON_AMBER, 1, now), [
-        { text: when, color: GREY },
-      ])
+      return ending({ text: '✗', color: AMBER, bold: true }, 'amber', `interrupted after ${took}`, [{ text: when, color: GREY }])
     }
-    return row({ text: '✗', color: AMBER, bold: true }, bar('stopped', ON_AMBER, 1, now), [
+    return ending({ text: '✗', color: AMBER, bold: true }, 'amber', 'stopped', [
       { text: `${when} · its process is gone`, color: GREY },
     ])
   })
 }
+
+const GROUNDS: Record<DroidReviewsEnded['ground'], Rgb> = { done: FINISHED, red: FAILED, amber: HALTED }
+
+/** The spinner's frame at `t`. */
+const spinAt = (t: number) => SPIN[Math.floor(t * SPIN_HZ) % SPIN.length]!
+
+/**
+ * A row as it looks at `t`. `motion` is null where the band is drawn once a
+ * second and the bar holds still; where it is drawn every frame, it says
+ * when the row was seen to stop running, if it was, and how far its bar had
+ * filled then, so the bar can finish from there.
+ */
+export function paint(p: DroidReviewsPlan, t: number, motion: Motion | null): DroidReviewsRow {
+  const m = p.meter
+  let meter: DroidReviewsSeg[]
+  if (m.kind === 'running') meter = running(m, t, motion !== null)
+  else if (motion?.ended && t - motion.ended.at < FINISH_S) meter = finishing(m.text, GROUNDS[m.ground], motion.ended.from, t - motion.ended.at)
+  else meter = ended(m.text, GROUNDS[m.ground])
+  const lead = p.lead ?? { text: spinAt(t), color: BLUE }
+  return { key: p.key, segs: [lead, { text: ' ' }, ...p.name, { text: '  ' }, ...meter, { text: '  ' }, ...p.tail].filter(s => s.text) }
+}
+
+export type Motion = { ended: { at: number; from: number } | null }
+
+/** Where a running bar's fill ends at `t`, in dots, as drawn in motion: where it finishes from once its run ends. */
+export function filledAt(m: DroidReviewsRunning, t: number): number {
+  if (m.estimate) return reach(m, t)
+  const { from, width } = flight(t)
+  return from + width
+}
+
+/** The rows as they look at `now`, held still. */
+export const rows = (runs: readonly Run[], hist: History, now: number): DroidReviewsRow[] =>
+  plan(runs, hist, now).map(p => paint(p, now, null))

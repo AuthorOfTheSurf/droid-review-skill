@@ -82,8 +82,10 @@ droid exec --help | sed -n '/Model details:/,/^$/p' | grep ' - '   # eyeball aga
 `fallbackModelId`, and the family list (`generations:[{id:...},...]`, newest
 first). If every shortcut shows `(no family listed)`, or NEW / ON SALE /
 DEPRECATED are all `(none)` while the user's `/model` shows badges, the
-extraction stopped matching: fix the regexes in the `--efforts`/`--whats-new`
-block.
+extraction stopped matching: fix the regexes in `skills/droid-review/registry.py`.
+The same file gives each run the `price` its `.json` records and the band shows
+after the model name (`Muse Spark 1.2 (0.5x)`): a `price` of null on a real run
+means `cost:{tokenMultiplier:...}` stopped matching.
 
 When the user asks "what levels does X take", `$d --efforts X` is the answer;
 never guess, and never probe with a real run — droid runs an unsupported effort
@@ -213,7 +215,11 @@ then change the check in the same commit. It also checks what the band reads (ea
 taken to be doing from its tool calls; `band.test.tsx`: the band over a
 mocked `.droid-reviews/`). Without it that line reads `skip`: say so in the report.
 To look at the rows in a real session instead, `demo-band.sh` runs slowed
-stub reviews in this repo and removes their files afterwards. Also run `bash -n` and `shellcheck`
+stub reviews in this repo and removes their files afterwards. To judge the
+bar's animation, `demo-bar.py` (`--loop` to repeat, `--keep` to leave the rows)
+writes scripted runs straight into `.droid-reviews/` for about half a minute,
+each row one state on cue: the climb to the stop and its bounce, the blob with
+no history, a late finish, an early one, a failure. No script and no droid run. Also run `bash -n` and `shellcheck`
 on the scripts (shellcheck is clean: any warning is new). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
 

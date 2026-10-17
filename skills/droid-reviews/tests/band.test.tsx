@@ -82,8 +82,8 @@ test('a finished review waits in the band to be triaged, then says what came of 
 
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    const row = await ui.find({ text: /droid-review · GLM-5.3-Flash/ })
-    expect(row?.text).toContain('✓ 1m 55s · 6 turns')
+    const row = await ui.find({ text: /droid-review · GLM-5.3-Flash/, in: 'band' })
+    expect(row?.text).toMatch(/^✓ .* 1m 55s · 6 turns/)
     expect(row?.text).toContain('awaiting triage for 5m...')
     await ui.unmount()
   }
@@ -94,7 +94,7 @@ test('a finished review waits in the band to be triaged, then says what came of 
   )
   await clock.advance(70_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ text: /triaged/ }))?.text).toContain('triaged 1m ago: fixed two, skipped one')
+  expect((await ui.find({ text: /triaged/, in: 'band' }))?.text).toContain('triaged 1m ago: fixed two, skipped one')
 })
 
 test('a running review shows its time against the estimate and what droid is doing', async ($, on) => {
@@ -116,13 +116,13 @@ test('a running review shows its time against the estimate and what droid is doi
   await clock.settle()
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  const row = await ui.find({ text: /GLM-5.3-Flash/ })
+  const row = await ui.find({ text: /GLM-5.3-Flash/, in: 'band' })
   expect(row?.text).toContain('25s / ~1m 55s')
   expect(row?.text).toContain('reading files · turn 3 · Execute npm test')
 
   // Quiet for half a minute with a command still out: it is the command that runs.
   await clock.advance(40_000)
-  expect((await ui.find({ text: /GLM-5.3-Flash/ }))?.text).toContain('running checks for 45s · turn 3 · Execute npm test')
+  expect((await ui.find({ text: /GLM-5.3-Flash/, in: 'band' }))?.text).toContain('running checks for 45s · turn 3 · Execute npm test')
 })
 
 test('with nothing running or recent the band is left to the engine', async ($, on) => {
@@ -138,6 +138,7 @@ test('with nothing running or recent the band is left to the engine', async ($, 
   }
 })
 
+const EMPTY = '#444444' // the track: the part of a bar nothing covers
 const RUNNING = { status: 'running', started: '2026-10-05T19:00:00+08:00', pid: 4242 }
 const READING = { text: '[0m20s] turn 2 · Read x', mtimeMs: at('19:00:20') }
 /** The log of a run from before the metadata, done in `seconds`. */
@@ -160,7 +161,7 @@ test('a half-written or foreign .json is passed over, and a log without a run\'s
   await clock.settle()
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ text: /droid-review/ }))?.text).toContain('25s / ~1m ')
+  expect((await ui.find({ text: /droid-review/, in: 'band' }))?.text).toContain('25s / ~1m ')
 })
 
 test('a run whose process is gone reads as stopped', async ($, on) => {
@@ -170,8 +171,8 @@ test('a run whose process is gone reads as stopped', async ($, on) => {
   await clock.settle()
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  const row = await ui.find({ text: /droid-review/ })
-  expect(row?.text).toContain('   stopped   ')
+  const row = await ui.find({ text: /droid-review/, in: 'band' })
+  expect(row?.text).toMatch(/[⠀-⣿] stopped   /)
   expect(row?.text).toContain('just now · its process is gone')
 })
 
@@ -183,4 +184,43 @@ test('a repo inside another does not show the outer one\'s reviews', async ($, o
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ text: /droid-review/ })).toBeUndefined()
+  expect(await ui.find({ text: "nothing of the mod's" })).toBeDefined()
+})
+
+test('on a surface that runs a Client the band moves between reads, and a run seen to end finishes its bar', async ($, on) => {
+  const files: Record<string, File> = {
+    'a.json': meta(FINISHED, at('18:04:24')),
+    'b.json': meta(RUNNING, at('19:00:00')),
+    'b.log': READING,
+  }
+  const clock = world(on, files, at('19:00:25'))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const spinner = async () => (await ui.find({ type: 'Text', text: / \/ ~/, in: 'band' }))?.text[0]
+  const first = await spinner()
+  await ui.advance(150)
+  expect(await spinner()).not.toBe(first) // a turn of the spinner within the second, with no read between
+
+  files['b.json'] = meta({ ...FINISHED, started: RUNNING.started, finished: '2026-10-05T19:00:26+08:00', duration_s: 26 }, at('19:00:26'))
+  await clock.advance(1000)
+  const done = async () => JSON.stringify(await ui.drawn({ in: 'band' }))
+  const slamming = await done()
+  expect(slamming).toContain(EMPTY) // its first frame ended: still short of full, about to rush on
+  await ui.advance(2000)
+  const settled = await done()
+  expect(settled).not.toContain(EMPTY) // both bars full in their colour
+  await ui.advance(2000)
+  expect(await done()).toBe(settled) // at rest: nothing moves, nothing redraws
+  expect((await ui.find({ text: /^✓ .* 26s · 6 turns/, in: 'band' }))).toBeDefined()
+})
+
+test('a run already over when the band is drawn does not play its finish', async ($, on) => {
+  const clock = world(on, { 'a.json': meta(FINISHED, at('18:04:24')) }, at('18:05:00'))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(JSON.stringify(await ui.drawn({ in: 'band' }))).not.toContain(EMPTY)
 })

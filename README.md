@@ -9,7 +9,7 @@ Models and harnesses should not review their own code. They tend to share blind 
 | | |
 |---|---|
 | `/droid-review` | Structured code review: severity, `file:line`, the scenario that breaks. Your agent triages each finding, fixes, and asks for a re-check. |
-| `/droid-feedback` | An open-ended ask ("is this approach sane?"). Prose back, no imposed format. |
+| `/droid-feedback` | Any ask, sent as you wrote it ("is this approach sane?"). Prose back, no imposed format, no checks unless asked. |
 | `/droid-history` | This branch's reviews with their re-check rounds, the commit each reviewed, and what was done about it. Runs no model. |
 
 ## Usage

@@ -1,15 +1,18 @@
 // droid reviews in a band above the prompt: one row per review running in
-// this repo. This file reads .droid-reviews/ once a second and draws; rows.ts
-// says what a row is. With nothing to show the band is left as it was.
+// this repo. This file reads .droid-reviews/ once a second; rows.ts says what a
+// row is, and band.tsx paints the rows every frame on a surface that runs a
+// Client (elsewhere this file paints them once a second, still). With nothing
+// to show the band is left as it was.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register } from 'claude-code'
 
-import type { DroidReviewsRow } from '../types'
-import { history, rows } from './rows'
+import type { DroidReviewsBand } from '../types'
+import { history, paint, plan } from './rows'
 import type { LogEnds, Meta, Run } from './rows'
 
-const shown = atom({ plugin: 'droid-reviews', key: 'rows' } as const, [])
+const NONE: DroidReviewsBand = { now: 0, plans: [] }
+const shown = atom({ plugin: 'droid-reviews', key: 'band' } as const, NONE)
 
 const TICK_MS = 1000
 const LOOK_AGAIN_TICKS = 10 // no .droid-reviews/ yet: look for one this often
@@ -70,16 +73,16 @@ export const register: Register = on => {
       return answer
     }
 
-    async function scan(): Promise<DroidReviewsRow[]> {
+    async function scan(): Promise<DroidReviewsBand> {
       if (folder === null) {
-        if (ticks++ % LOOK_AGAIN_TICKS !== 0) return []
+        if (ticks++ % LOOK_AGAIN_TICKS !== 0) return NONE
         folder = await findReviews($, e.cwd)
-        if (folder === null) return []
+        if (folder === null) return NONE
       }
       const entries = await $.fs.list(folder).catch(() => null)
       if (entries === null) {
         folder = null // deleted: deleting old reviews is safe
-        return []
+        return NONE
       }
       const files = new Map(entries.filter(entry => entry.kind === 'file').map(entry => [entry.name, entry]))
       const nowMs = await $.clock.now()
@@ -121,18 +124,19 @@ export const register: Register = on => {
           if (lines.length) orphans.push({ first: lines[0]!, last: lines.at(-1)! })
         }
       }
-      return rows(runs, history(runs, orphans), nowMs / 1000)
+      return { now: nowMs / 1000, plans: plan(runs, history(runs, orphans), nowMs / 1000) }
     }
 
     async function tick(): Promise<void> {
       if (isScanning) return
       isScanning = true
       try {
-        const found = await scan()
-        const drawing = JSON.stringify(found)
-        // Written only when a row changed: a band of finished rows redraws once a minute.
-        if (drawing !== drawn) {
-          await update($, shown, () => found)
+        const band = await scan()
+        const drawing = JSON.stringify(band.plans)
+        // Written when a row changed, and while one runs, so its time stays
+        // true: a band of finished rows redraws once a minute.
+        if (drawing !== drawn || band.plans.some(p => p.meter.kind === 'running')) {
+          await update($, shown, () => band)
           drawn = drawing
         }
       } catch {
@@ -149,14 +153,23 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const list = await read($, shown)
-    if (e.props.hasSurvey || list.length === 0) return next(e)
+    const band = await read($, shown)
+    if (e.props.hasSurvey || band.plans.length === 0) return next(e)
 
-    const { Box, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    if ('Client' in elements) {
+      const { Client } = elements
+      return (
+        <Box flexDirection="column" width={e.props.bodyColumns} marginTop={1}>
+          <Client key="band" module="./band.tsx" props={band} width="100%" />
+        </Box>
+      )
+    }
 
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} marginTop={1}>
-        {list.map(row => (
+        {band.plans.map(p => paint(p, band.now, null)).map(row => (
           <Text wrap="truncate-end">
             {row.segs.map(seg => (
               <Text
