@@ -7,7 +7,7 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 import type { DroidReviewsBand, DroidReviewsRunning } from '../types'
 import { FINISH_S, filledAt, paint } from './rows'
 
-const FRAME_MS = 33
+const FRAME_MS = 16 // sixty a second; a frame that comes out the same as the last writes nothing to the terminal
 const CATCH_UP = 0.2 // of the time the clock is behind, how much a frame makes up: behind is caught up in a few frames, not in one jump
 
 /**
