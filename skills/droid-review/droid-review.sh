@@ -652,8 +652,9 @@ run_meta() {
   MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
   SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
   OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" HERE="$(dirname "$SELF")" \
+  SC_IDS="$(for s in $SHORTCUTS; do shortcut "$s"; done)" \
   python3 - "$@" <<'PY'
-import datetime, json, os, re, subprocess, sys
+import datetime, json, os, re, subprocess, sys, zlib
 mode, meta = sys.argv[1], sys.argv[2]
 env = lambda k: os.environ.get(k) or None
 
@@ -764,6 +765,16 @@ def model_price(mid):
     info, _ = registry.read(datetime.datetime.now(datetime.timezone.utc))
     return registry.price(info.get(mid))
 
+def model_hue(mid):
+    """Which of the band's colours the model's row takes: its shortcut's place
+    in SHORTCUTS, so the same model is the same colour in every run and glm,
+    the first, is the band's blue; a model with no shortcut, a number from its
+    id. The band takes it modulo however many colours it has."""
+    if not mid:
+        return None
+    ids = os.environ.get("SC_IDS", "").split()
+    return ids.index(mid) if mid in ids else zlib.crc32(mid.encode()) % 1000
+
 def shortstat(*args):
     s = git("diff", "--shortstat", *args) or ""
     out = {}
@@ -802,6 +813,7 @@ if mode == "start":
         m["round"] = (prev.get("round") or 1) + 1
     m["model_name"] = model_name(m["model"])
     m["price"] = model_price(m["model"])
+    m["hue"] = model_hue(m["model"])
     try:
         r = subprocess.run(("droid", "--version"), capture_output=True, text=True, timeout=10)
         if r.returncode == 0:

@@ -13,6 +13,8 @@ export type DroidReviewsEnded = { kind: 'ended'; ground: 'done' | 'red' | 'amber
 /** A row with its bar and spinner left to be painted at any moment: null `lead` is the spinner. */
 export type DroidReviewsPlan = {
   key: string
+  /** Which of the band's colours it is drawn in, one of five: its model's. */
+  hue: number
   lead: DroidReviewsSeg | null
   name: DroidReviewsSeg[]
   meter: DroidReviewsRunning | DroidReviewsEnded

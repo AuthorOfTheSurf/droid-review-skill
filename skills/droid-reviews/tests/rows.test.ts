@@ -13,6 +13,14 @@ const iso = (secondsAgo: number) => new Date((NOW - secondsAgo) * 1000).toISOStr
 // The bar's colours, as rows.ts draws them.
 const RIBBON = '#6888c4'
 const FINISHED = '#89b4fa'
+// Each row's own colour, by the hue its run recorded: full (its name, ✓, finished bar) and dim (its running bar).
+const HUES = [
+  { full: '#89b4fa', dim: '#6888c4' }, // blue
+  { full: '#a6e3a1', dim: '#76aa72' }, // green
+  { full: '#f38ba8', dim: '#be6880' }, // pastel pink
+  { full: '#fab387', dim: '#c48662' }, // orange
+  { full: '#cba6f7', dim: '#987ac0' }, // lavender
+]
 const FAILED = '#f85149'
 const TRACK = '#444444'
 const GREEN = '#3fb950'
@@ -124,6 +132,16 @@ test('the ribbon grows with time, up to the stop', () => {
   expect(ribbon(late!)).toBe(STOP) // past it: the stop
   expect(columns(late!)[STOP]).toEqual({ h: 1, color: TRACK }) // four fifths is not marked: past the ribbon, only the track
   expect(text(late!)).toMatch(new RegExp(`[⠀-⣿]{${BAR_W}} 1m 30s / ~40s `))
+})
+
+test('a row takes the colour of its model, five of them round and round, blue for a run that recorded none', () => {
+  const hues = [0, 1, 2, 3, 4, 5, 1, null]
+  const drawn = draw([finished('past', { duration_s: 40 }), ...hues.map((hue, n) => run(`r${n}`, { started: iso(30 - n), log: READ, hue }))])
+  const want = [0, 1, 2, 3, 4, 0, 1, 0].map(n => HUES[n]!)
+  expect(drawn.map(row => row.segs.find(seg => seg.text === 'glm-5.3-flash')?.color)).toEqual(want.map(h => h.full))
+  expect(drawn.map(row => columns(row)[0]!.color)).toEqual(want.map(h => h.dim))
+  const failed = only(draw([run('b', { status: 'failed', finished: iso(5), duration_s: 3, hue: 1 })]))
+  expect(columns(failed)[0]!.color).toBe(FAILED) // a failure fills red, not its model's green
 })
 
 test('a running bar stops at four fifths however late', () => {
@@ -257,7 +275,7 @@ test('finished rows show for fifteen minutes', () => {
   // The result fills the bar, in its colour.
   const ok = drawn.find(row => text(row).startsWith('✓'))!
   expect(ribbon(ok, FINISHED)).toBe(DOTS)
-  expect(ok.segs[0]).toEqual({ text: '✓', color: BLUE, bold: true }) // a review that finished: the model's blue
+  expect(ok.segs[0]).toEqual({ text: '✓', color: BLUE, bold: true }) // a review that finished: its model's colour, blue with none recorded
   expect(ribbon(drawn.find(row => text(row).includes('failed after'))!, FAILED)).toBe(DOTS)
 })
 

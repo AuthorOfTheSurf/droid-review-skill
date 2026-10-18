@@ -187,6 +187,12 @@ done
 ```
 
 
+**A shortcut's place in `SHORTCUTS` is its colour in the band.** A run records
+it as `hue` (glm, first, is the band's blue), and the band takes it modulo its
+five colours. Add a shortcut at the end, and point an existing one at a newer
+model in place: either way no model changes colour. Reordering the list
+recolours the models; a model with no shortcut takes a colour from its id.
+
 ## 4. Regression — run the script's paths against a stub droid
 
 `stub-droid` (next to this file) answers `exec` runs with canned stream-json
@@ -217,9 +223,10 @@ mocked `.droid-reviews/`). Without it that line reads `skip`: say so in the repo
 To look at the rows in a real session instead, `demo-band.sh` runs slowed
 stub reviews in this repo and removes their files afterwards. To judge the
 bar's animation, `demo-bar.py` (`--loop` to repeat, `--keep` to leave the rows)
-writes scripted runs straight into `.droid-reviews/` for about half a minute,
-each row one state on cue: the climb to the stop and its bounce, the blob with
-no history, a late finish, an early one, a failure. No script and no droid run. Also run `bash -n` and `shellcheck`
+writes scripted runs straight into `.droid-reviews/` for about half a minute:
+five rows, one in each of the band's colours, each one state on cue (the
+climb to the stop and its bounce, the blob with no history, a late finish, an
+early one, a failure, an interruption). No script and no droid run. Also run `bash -n` and `shellcheck`
 on the scripts (shellcheck is clean: any warning is new). When a fix covers a
 failure the stub cannot yet produce, add a stub mode and a check for it.
 
