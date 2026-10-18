@@ -96,6 +96,7 @@ check "session last: records what it continues" json "$m2" "m['continues']['revi
 check "session last: same model"           json "$m2" 'm["model"]=="glm-5.3-flash" and m["effort"] is None'
 check "review: droid's name for the model" json "$m" 'm["model_name"]=="GLM-5.3-Flash"'
 check "review: records a price (none from the stub)" json "$m" '"price" in m'
+check "review: glm, the first shortcut, is the band's first colour" json "$m" 'm["hue"]==0'
 check "review: round 1, no effort pinned"  json "$m" 'm["round"]==1 and m["effort"] is None'
 check "session last: round 2"              json "$m2" 'm["round"]==2'
 check "session last: title says round 2"   grep -qx '# droid review, round 2' "$(sed -n 1p "$t/o2")"
@@ -229,6 +230,7 @@ STUB_DROID_FAST=glm-5.3-flash STOP_AFTER_OK=1 interrupt "$t/o8b" 1 --base master
 check "late interrupt: glm stays ok"       sh -c "grep -q '^glm	ok	' '$t/o8b' && grep -q '^gemini	interrupted	' '$t/o8b'"
 check "late interrupt: glm metadata ok"    json "$(ls -t .droid-reviews/*glm-5.3-flash.json | head -1)" 'm["status"]=="ok" and m["finished"]'
 check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["status"]=="interrupted"'
+check "late interrupt: gemini, the second shortcut, the second colour" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["hue"]==1'
 
 # 8. droid-feedback.
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane" > "$t/o9" 2>&1; RC=$?

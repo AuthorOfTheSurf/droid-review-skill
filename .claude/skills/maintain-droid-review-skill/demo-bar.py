@@ -7,9 +7,11 @@ Claude Code session with the band is open there, and watch.
     demo-bar.py --loop     # again and again until ^C
     demo-bar.py --keep     # leave the finished rows up afterwards
 
-Three rows, each showing one thing the bar does:
+Five rows, one in each of the band's colours (by model, as real runs are), each showing one thing the bar does:
   A  has history (~10s): grows to the stop, bounces there, rests, finishes late.
   B  has no history: the blob flies wall to wall, then the run fails.
+  D  has history (~20s) and is interrupted at 15s: the bar fills amber.
+  E  has history (~6s), a long wait at the stop, then finishes at 24s.
   C  has history (~12s) but finishes early at 6s: the rush from part-way.
 
 Each demo run's model is an id of its own (demo-a, ...), so its estimate
@@ -20,6 +22,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import signal
 import sys
 import time
@@ -28,17 +31,30 @@ FOLDER = pathlib.Path(__file__).resolve().parents[3] / ".droid-reviews"  # this 
 PREFIX = "00000000-000000-demo-"  # sorts first, and says what it is
 PID = os.getpid()  # alive while the demo plays: the band calls a run with a gone pid stopped
 
+# A row's colour is its shortcut's, looked up the way the script records it:
+# the shortcut's place in the script's SHORTCUTS (the band takes it modulo five).
+SCRIPT_SH = pathlib.Path(__file__).resolve().parents[3] / "skills/droid-review/droid-review.sh"
+SHORTCUTS = re.search(r'^SHORTCUTS="([^"]*)"', SCRIPT_SH.read_text(), re.M).group(1).split()
+# Five shortcuts that land on the five colours.
 ROWS = {
-    "a": {"kind": "review", "model_name": "GLM-5.3-Flash", "price": 0.5, "past": 10},
-    "b": {"kind": "feedback", "model_name": "Muse Spark 1.2", "price": 0.4, "past": None},
-    "c": {"kind": "review", "model_name": "Gemini 3.8 Flash", "price": 1, "effort": "high", "past": 12},
+    "a": {"kind": "review", "shortcut": "glm", "model_name": "GLM-5.3-Flash", "price": 0.5, "past": 10},
+    "b": {"kind": "feedback", "shortcut": "muse", "model_name": "Muse Spark 1.2", "price": 0.4, "past": None},
+    "c": {"kind": "review", "shortcut": "gemini", "model_name": "Gemini 3.8 Flash", "price": 1, "effort": "high", "past": 12},
+    "d": {"kind": "review", "shortcut": "argon", "model_name": "Gemini 4 Argon", "price": 2, "past": 20},
+    "e": {"kind": "review", "shortcut": "luna", "model_name": "GPT-6 Luna", "price": 0.3, "past": 6},
 }
+for row in ROWS.values():
+    row["hue"] = SHORTCUTS.index(row["shortcut"])
 # (second, row, what happens): "start", a tool call as droid's log writes it, or how it ended.
 SCRIPT = [
     (0, "a", "start"),
     (0, "b", "start"),
     (1, "a", "Skill review"),
+    (1, "d", "start"),
     (2, "b", "Read README.md"),
+    (2, "e", "start"),
+    (3, "d", "Read README.md"),
+    (4, "e", "Grep shortName"),
     (3, "a", "Execute git diff --stat origin/master...HEAD"),
     (4, "c", "start"),
     (5, "b", "Grep band"),
@@ -47,8 +63,11 @@ SCRIPT = [
     (9, "a", "Execute npm test"),
     (10, "c", "ok"),
     (12, "b", "Read skills/droid-reviews/hooks/band.tsx"),
+    (11, "d", "Execute npm test"),
+    (15, "d", "interrupted"),
     (16, "a", "ok"),
     (20, "b", "failed"),
+    (24, "e", "ok"),
 ]
 HOLD_S = 8  # the finished rows stay this long before the files go
 
@@ -87,7 +106,7 @@ def play():
     def save(k, **fields):
         row = ROWS[k]
         meta = {"status": "running", "kind": row["kind"], "model": "demo-" + k, "model_name": row["model_name"],
-                "price": row["price"], "effort": row.get("effort"), "round": 1, "pid": PID,
+                "price": row["price"], "hue": row["hue"], "effort": row.get("effort"), "round": 1, "pid": PID,
                 "started": iso(started[k])}
         meta.update(fields)
         write(FOLDER / (PREFIX + k + ".json"), json.dumps(meta))
@@ -101,13 +120,13 @@ def play():
                   "[0m01s] started demo-%s (reasoning high) session past\n[0m%02ds] done · 5 turns · %ds\n"
                   % (k, row["past"], row["past"]))
 
-    for at, k, what in SCRIPT:
+    for at, k, what in sorted(SCRIPT, key=lambda step: step[0]):
         time.sleep(max(0, t0 + at - time.time()))
         if what == "start":
             started[k] = time.time()
             lines[k].append("%s started demo-%s (reasoning high) session demo-%s" % (stamp(k), k, k))
             save(k)
-        elif what in ("ok", "failed"):
+        elif what in ("ok", "failed", "interrupted"):
             took = int(time.time() - started[k])
             lines[k].append("%s done · %d turns · %ds" % (stamp(k), turns[k], took))
             save(k, status=what, finished=iso(time.time()), duration_s=took, turns=turns[k],

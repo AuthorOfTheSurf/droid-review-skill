@@ -54,6 +54,8 @@ export type Meta = {
   pid?: number | string | null
   /** The model's token-price multiplier when the run started, as droid's /model picker showed it. */
   price?: number | null
+  /** Which of the band's colours the row takes, as the script recorded it: the model's shortcut's place in its list, so one model is always one colour. */
+  hue?: number | null
   responses?: unknown
 }
 
@@ -96,18 +98,28 @@ const GREEN = '#3fb950'
 const AMBER = '#e6b450'
 const RED = '#f85149'
 const GREY = '#8a8a8a'
-// The band's own colour, periwinkle: the model's name, a running row's
-// spinner, a finished review's ✓ and its bar. Not one of the colours that say
-// how a run went (green, amber, red).
-const BLUE = '#89b4fa'
 type Rgb = readonly [number, number, number]
-const RIBBON: Rgb = [104, 136, 196] // a running bar: BLUE, a little dimmed, so it brightens as it finishes
-const FINISHED: Rgb = [137, 180, 250] // BLUE
+/**
+ * A row's own colour, by its model (the `hue` its run recorded; a run from
+ * before that is blue), so a model looks the same in every run and several
+ * share each colour: `full` is its model's name, its spinner, a finished review's ✓ and
+ * bar; `dim` its bar while it runs, so the bar brightens as it finishes. A
+ * failed or stopped bar still fills red or amber.
+ */
+type Hue = { full: Rgb; dim: Rgb }
+const HUES: readonly Hue[] = [
+  { full: [137, 180, 250], dim: [104, 136, 196] }, // periwinkle blue
+  { full: [166, 227, 161], dim: [118, 170, 114] }, // green
+  { full: [243, 139, 168], dim: [190, 104, 128] }, // pastel pink
+  { full: [250, 179, 135], dim: [196, 134, 98] }, // orange
+  { full: [203, 166, 247], dim: [152, 122, 192] }, // lavender
+]
+const hueOf = (p: DroidReviewsPlan) => HUES[p.hue % HUES.length]!
 const FAILED: Rgb = [248, 81, 73] // RED
 const HALTED: Rgb = [230, 180, 80] // AMBER
 const TRACK: Rgb = [68, 68, 68] // the line the bar runs along
-const SHINE: Rgb = [196, 216, 255] // the swell that runs along a running bar
 const SQUEEZE: Rgb = [236, 242, 255] // where a bar presses against what stops it
+const WHITE: Rgb = [255, 255, 255]
 
 const hex = (c: Rgb) => '#' + c.map(x => Math.round(x).toString(16).padStart(2, '0')).join('')
 const mix = (a: Rgb, b: Rgb, t: number): Rgb => [0, 1, 2].map(i => a[i]! + (b[i]! - a[i]!) * t) as unknown as Rgb
@@ -280,7 +292,8 @@ function flight(t: number): { from: number; width: number; squeeze: number } {
  * springs back a few times before it rests; and the blob flies from wall to
  * wall, long in flight and squashed narrow against each wall.
  */
-function running(m: DroidReviewsRunning, t: number, isMoving: boolean): DroidReviewsSeg[] {
+function running(m: DroidReviewsRunning, t: number, isMoving: boolean, { dim: RIBBON, full }: Hue): DroidReviewsSeg[] {
+  const SHINE = mix(full, WHITE, 0.5) // the swell that runs along a running bar
   const elapsed = Math.max(0, t - m.started)
   const text = short(elapsed) + (m.estimate ? ` / ~${short(m.estimate)}` : '')
   const cols = empty()
@@ -309,7 +322,7 @@ function running(m: DroidReviewsRunning, t: number, isMoving: boolean): DroidRev
  * ribbon rushes on from where it was, quickening, slams into the far end,
  * flashes against it and springs back while it takes the result's colour.
  */
-function finishing(text: string, ground: Rgb, from: number, s: number): DroidReviewsSeg[] {
+function finishing(text: string, ground: Rgb, from: number, s: number, { dim: RIBBON }: Hue): DroidReviewsSeg[] {
   const cols = empty()
   if (s < RUSH_S) {
     ribbon(cols, from + (DOTS - from) * (s / RUSH_S) ** 2, () => RIBBON)
@@ -436,6 +449,8 @@ export function plan(runs: readonly Run[], hist: History, now: number): DroidRev
 
   return shown.map(({ run, status, silent, ended, triaged }): DroidReviewsPlan => {
     const m = run.meta
+    const hue = typeof m.hue === 'number' && m.hue >= 0 ? Math.floor(m.hue) % HUES.length : 0
+    const own = hex(HUES[hue]!.full)
     const w = who(m)
     // "droid-review · Gemini 3.8 Flash max (round 2)": the command that ran,
     // droid's name for the model (else its id) with the effort when one was
@@ -444,11 +459,11 @@ export function plan(runs: readonly Run[], hist: History, now: number): DroidRev
     const name: DroidReviewsSeg[] = [
       { text: w.label },
       { text: ' · ', color: GREY },
-      { text: w.model, color: BLUE },
+      { text: w.model, color: own },
       { text: w.aside + ' '.repeat(width - w.width), color: GREY },
     ]
     const ending = (lead: DroidReviewsSeg, ground: DroidReviewsEnded['ground'], text: string, tail: DroidReviewsSeg[]) =>
-      ({ key: run.name, lead, name, meter: { kind: 'ended', ground, text }, tail }) as const
+      ({ key: run.name, hue, lead, name, meter: { kind: 'ended', ground, text }, tail }) as const
 
     if (status === 'running') {
       const elapsed = since(m.started, now) ?? 0
@@ -459,6 +474,7 @@ export function plan(runs: readonly Run[], hist: History, now: number): DroidRev
       if (isHeld) doing = `for ${short(silent)}${doing ? ' · ' + doing : ''}`
       return {
         key: run.name,
+        hue,
         lead: null,
         name,
         meter: { kind: 'running', started: now - elapsed, estimate: median(hist.get(timedAs(m)) ?? []) },
@@ -469,7 +485,7 @@ export function plan(runs: readonly Run[], hist: History, now: number): DroidRev
     const took = typeof m.duration_s === 'number' ? short(m.duration_s) : '?'
     const when = ago(ended ?? 0)
     if (status === 'ok') {
-      return ending({ text: '✓', color: BLUE, bold: true }, 'done', `${took} · ${m.turns ?? '?'} turns`, triaged)
+      return ending({ text: '✓', color: own, bold: true }, 'done', `${took} · ${m.turns ?? '?'} turns`, triaged)
     }
     if (status === 'failed') {
       const err = String(m.error ?? '').split(/\s+/).filter(Boolean).join(' ')
@@ -486,7 +502,7 @@ export function plan(runs: readonly Run[], hist: History, now: number): DroidRev
   })
 }
 
-const GROUNDS: Record<DroidReviewsEnded['ground'], Rgb> = { done: FINISHED, red: FAILED, amber: HALTED }
+const ground = (m: DroidReviewsEnded, hue: Hue): Rgb => ({ done: hue.full, red: FAILED, amber: HALTED })[m.ground]
 
 /** The spinner's frame at `t`. */
 const spinAt = (t: number) => SPIN[Math.floor(t * SPIN_HZ) % SPIN.length]!
@@ -500,10 +516,11 @@ const spinAt = (t: number) => SPIN[Math.floor(t * SPIN_HZ) % SPIN.length]!
 export function paint(p: DroidReviewsPlan, t: number, motion: Motion | null): DroidReviewsRow {
   const m = p.meter
   let meter: DroidReviewsSeg[]
-  if (m.kind === 'running') meter = running(m, t, motion !== null)
-  else if (motion?.ended && t - motion.ended.at < FINISH_S) meter = finishing(m.text, GROUNDS[m.ground], motion.ended.from, t - motion.ended.at)
-  else meter = ended(m.text, GROUNDS[m.ground])
-  const lead = p.lead ?? { text: spinAt(t), color: BLUE }
+  const hue = hueOf(p)
+  if (m.kind === 'running') meter = running(m, t, motion !== null, hue)
+  else if (motion?.ended && t - motion.ended.at < FINISH_S) meter = finishing(m.text, ground(m, hue), motion.ended.from, t - motion.ended.at, hue)
+  else meter = ended(m.text, ground(m, hue))
+  const lead = p.lead ?? { text: spinAt(t), color: hex(hue.full) }
   return { key: p.key, segs: [lead, { text: ' ' }, ...p.name, { text: '  ' }, ...meter, { text: '  ' }, ...p.tail].filter(s => s.text) }
 }
 
