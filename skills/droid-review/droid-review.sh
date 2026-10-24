@@ -106,7 +106,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron) point at the newest
-# model in the family as of droid 0.242.0 — move them when droid ships a newer one.
+# model in the family as of droid 0.244.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron"
 shortcut() {
   case "$1" in
@@ -345,10 +345,13 @@ for l in os.environ["SC"].splitlines():
     dep = (info.get(mid) or {}).get("dep")
     if rank is None:
         verdict = "(no family listed)"
-    elif rank == 0:
-        verdict = "newest in its family"
     else:
-        verdict = "NEWER: " + ", ".join(g for g, _ in gens[:rank])
+        # The registry can list a generation before droid takes its id (muse-spark-open, droid 0.244).
+        newer = [g for g, _ in gens[:rank]]
+        taken = [g for g in newer if g in accepted]
+        verdict = "NEWER: " + ", ".join(taken) if taken else "newest in its family"
+        if len(taken) < len(newer):
+            verdict += " (listed, droid does not take it yet: %s)" % ", ".join(g for g in newer if g not in taken)
     if dep:
         verdict += "; DEPRECATED -> " + ((info.get(mid) or {}).get("fallback") or "no fallback declared")
     line = " > ".join(g for g, _ in gens[:4]) + (" > ..." if len(gens) > 4 else "")
