@@ -106,7 +106,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron) point at the newest
-# model in the family as of droid 0.244.0 — move them when droid ships a newer one.
+# model in the family as of droid 0.249.0 — move them when droid ships a newer one.
 SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron"
 shortcut() {
   case "$1" in
