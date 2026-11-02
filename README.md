@@ -85,15 +85,17 @@ The reviewer runs at `--auto medium`. It can run your builds and tests, install 
 
 Tell droid how to check things: list your tests, linter, and typechecker in `AGENTS.md` or `CLAUDE.md`, or point at them with `--checks docs/testing.md`.
 
-## Progress bars Claude Code
-
-A band above the prompt shows one row per running review: progress against that model's usual time, what droid is doing, and what came of it. The band needs a Claude Code that loads Claude code "mods". Optional but recommended; it's more fun and looks pretty.
-
-<img width="1528" height="365" alt="SCR-20261102-mlyp" src="https://github.com/user-attachments/assets/1f2c424c-9f54-4c96-9152-16e4c56218bb" />
+## Install progress bars in Claude Code
 
 ```bash
 ln -s "$PWD/skills/droid-reviews" ~/.claude/skills/
 ```
+
+One bar per running review showing progress against that model's usual time, what droid is doing, and what came of it. The band needs a Claude Code that loads Claude code "mods". Optional but recommended—it's more fun and looks pretty.
+
+<img width="1528" height="365" alt="SCR-20261102-mlyp" src="https://github.com/user-attachments/assets/1f2c424c-9f54-4c96-9152-16e4c56218bb" />
+
+
 
 ## The script on its own
 
