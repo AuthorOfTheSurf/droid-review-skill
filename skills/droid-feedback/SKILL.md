@@ -1,7 +1,7 @@
 ---
 name: droid-feedback
 description: Ask Factory's droid anything in plain words — the copy, the API shape, a design question, a question that has nothing to do with the code — with the ask sent as the user wrote it, then weigh what comes back and apply only what the user picks. Human-invoked; run only when the user asks for droid feedback, never on your own initiative. For a structured code review, use droid-review instead.
-argument-hint: "[glm|gemini|luna|auto|fable|opus|sonnet|astra|sol|grok|qwen|kimi|deepseek|argon|muse|nemotron|a,b,c] [effort] <ask>"
+argument-hint: "[glm|gemini|luna|auto|fable|opus|sonnet|astra|sol|grok|qwen|kimi|deepseek|argon|muse|nemotron|haiku|luna-fast|beam|a,b,c] [effort] <ask>"
 ---
 
 # droid feedback → weigh → propose → re-check
