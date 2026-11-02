@@ -4,6 +4,8 @@ Get a second-opinion code review of your branch from [Factory's `droid` CLI](htt
 
 Models and harnesses should not review their own code. They tend to share blind spots, follow the same reasoning patterns, and evaluate problems the way they did when they wrote the code. The strongest agentic review pairs a different coding harness + different model family. This is supported by running the repository's own checks—not by reading the diff alone.
 
+Benefits: Ship features & fixes with greater confidence. Solicit review from multiple models while only paying for one additional subscription.
+
 ## Skills
 
 | | |
@@ -16,11 +18,13 @@ Models and harnesses should not review their own code. They tend to share blind 
 ## Usage
 
 ```sh
+# Uses droid's review skill and the default model (GLM-5.3-flash) to code-review your branch
 /droid-review
+
+# Optional parameters. I mainly specify model shortcuts
 /droid-review [model] [effort] [focus]
 
-### More examples
-# Review with Gemini on high effort
+# Review with Gemini (gemini-3.8-flash) on high effort
 /droid-review gemini high
 
 # Review with multiple models in parallel
@@ -28,6 +32,9 @@ Models and harnesses should not review their own code. They tend to share blind 
 
 # Request feedback on copywriting with a specific model
 /droid-feedback sol review the copy on the front page
+
+# Research with multiple models
+/droid-feedback grok,qwen,luna-fast What are competitors doing? Any cool features we should consider adding?
 ```
 
 1. Your agent starts `droid` in the background and waits (about 2–10+ minutes, depends on your codebase and the model).
@@ -47,7 +54,7 @@ Runs bill against your Factory plan.
 
 ## Install
 
-Easiest way: Just link your agent to the repo and tell it to install the skill
+_Easiest way_: Just link your agent to the repo and tell it to install the skill
 
 ```bash
 git clone https://github.com/AuthorOfTheSurf/droid-review-skill
@@ -75,6 +82,16 @@ The reviewer runs at `--auto medium`. It can run your builds and tests, install 
 
 Tell droid how to check things: list your tests, linter, and typechecker in `AGENTS.md` or `CLAUDE.md`, or point at them with `--checks docs/testing.md`.
 
+## Progress bars Claude Code
+
+A band above the prompt shows one row per running review: progress against that model's usual time, what droid is doing, and what came of it. The band needs a Claude Code that loads Claude code "mods". Optional but recommended; it's more fun and looks pretty.
+
+<img width="1528" height="365" alt="SCR-20261102-mlyp" src="https://github.com/user-attachments/assets/1f2c424c-9f54-4c96-9152-16e4c56218bb" />
+
+```bash
+ln -s "$PWD/skills/droid-reviews" ~/.claude/skills/
+```
+
 ## The script on its own
 
 `skills/droid-review/droid-review.sh` runs from any shell:
@@ -91,14 +108,6 @@ droid-review.sh --help                        # every flag
 ```
 
 Reviews, logs, and run metadata land in `.droid-reviews/`, which ignores itself in git. To watch a run, `tail -f` its log. `--compare` sets a review against the repo now: what changed since, and whether this branch touched each cited line or the line was already there.
-
-## Live status in Claude Code (optional, looks pretty)
-
-A band above the prompt shows one row per running review: progress against that model's usual time, what droid is doing, and what came of it. The band needs a Claude Code that loads Claude code "mods".
-
-```bash
-ln -s "$PWD/skills/droid-reviews" ~/.claude/skills/
-```
 
 ## Maintaining
 
