@@ -35,6 +35,9 @@ Benefits: Ship features & fixes with greater confidence. Solicit review from mul
 
 # Research with multiple models
 /droid-feedback grok,qwen,luna-fast What are competitors doing? Any cool features we should consider adding?
+
+# Just plain prose prompt, your agent will use the skills. Great when developing off your phone on mobile
+When you're done please request droid-review with glm and luna-fast, and then feel free to merge it if it looks good. ty
 ```
 
 1. Your agent starts `droid` in the background and waits (about 2–10+ minutes, depends on your codebase and the model).
