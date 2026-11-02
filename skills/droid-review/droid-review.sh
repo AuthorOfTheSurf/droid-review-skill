@@ -105,9 +105,9 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # Shortcuts: name → model. None pins an effort: each runs at droid's per-model
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
-# names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron) point at the newest
-# model in the family as of droid 0.242.0 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron"
+# names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron, haiku, beam) point at the newest
+# model in the family as of droid 1.1.0 — move them when droid ships a newer one.
+SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron haiku luna-fast beam"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash" ;;
@@ -124,8 +124,11 @@ shortcut() {
     kimi)   echo "kimi-k3" ;;
     deepseek) echo "deepseek-v4.1-flash" ;;
     argon)  echo "gemini-4-argon" ;;
-    muse)   echo "muse-spark-1.2" ;;
+    muse)   echo "muse-spark-1.3" ;;
     nemotron) echo "nemotron-3.5-super" ;;
+    haiku)  echo "claude-haiku-5-5" ;;
+    luna-fast) echo "gpt-6-luna-fast" ;;
+    beam)   echo "beam-1.0" ;;
     *) return 1 ;;
   esac
 }
@@ -345,10 +348,21 @@ for l in os.environ["SC"].splitlines():
     dep = (info.get(mid) or {}).get("dep")
     if rank is None:
         verdict = "(no family listed)"
-    elif rank == 0:
-        verdict = "newest in its family"
     else:
-        verdict = "NEWER: " + ", ".join(g for g, _ in gens[:rank])
+        # The registry can list a generation before droid takes its id (muse-spark-open, droid 0.244).
+        newer = [g for g, _ in gens[:rank]]
+        taken = [g for g in newer if g in accepted]
+        verdict = "NEWER: " + ", ".join(taken) if taken else "newest in its family"
+        if len(taken) < len(newer):
+            verdict += " (listed, droid does not take it yet: %s)" % ", ".join(g for g in newer if g not in taken)
+    # droid can file a new version as a family of its own (muse-spark-1.3 beside muse-spark-1.2, droid 1.1).
+    v = re.fullmatch(r"(.*?)(\d+(?:\.\d+)*)", mid)
+    if v:
+        ver = lambda x: tuple(int(n) for n in x.split("."))
+        apart = [m for m in accepted if m not in dict(gens) and (w := re.fullmatch(re.escape(v[1]) + r"(\d+(?:\.\d+)*)", m))
+                 and ver(w[1]) > ver(v[2])]
+        if apart:
+            verdict += "; HIGHER VERSION in another family: " + ", ".join(apart)
     if dep:
         verdict += "; DEPRECATED -> " + ((info.get(mid) or {}).get("fallback") or "no fallback declared")
     line = " > ".join(g for g, _ in gens[:4]) + (" > ..." if len(gens) > 4 else "")
