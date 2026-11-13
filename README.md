@@ -81,7 +81,7 @@ droid-review.sh --models glm,gemini,grok "the auth changes"   # several, in para
 
 ## What droid does in your repo
 
-The reviewer runs at `--auto medium`. It can run your builds and tests, install packages, make network requests, and commit locally, so that findings are backed by checks and not only by a reading of the diff. Its file-editing tools are removed and the prompt tells it not to commit. For a read-only review, drop `--auto medium` from `DROID_ARGS` in the script.
+The reviewer runs at `--auto medium`. It can run your builds and tests, install packages and make network requests, so that findings are backed by checks and not only by a reading of the diff. Its file-editing tools are removed, and droid refuses the commands that delete, move or discard files or commit (`rm`, `rmdir`, `unlink`, `mv`, `git rm`, `git clean`, `git reset`, `git checkout`, `git switch`, `git restore`, `git stash`, `git commit`); a script your tests run can still delete its own files. For a read-only review, drop `--auto medium` from `DROID_ARGS` in the script.
 
 Tell droid how to check things: list your tests, linter, and typechecker in `AGENTS.md` or `CLAUDE.md`, or point at them with `--checks docs/testing.md`.
 
