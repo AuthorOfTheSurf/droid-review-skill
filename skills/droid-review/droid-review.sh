@@ -107,11 +107,11 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron, haiku, beam) point at the newest
 # model in the family as of droid 1.10.0 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron haiku luna-fast beam carbon hydrogen"
+SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron haiku luna-fast beam carbon hydrogen gemini-flash"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash" ;;
-    gemini) echo "gemini-3.8-flash" ;;
+    gemini) echo "gemini-4-hydrogen" ;;
     luna)   echo "gpt-6-luna" ;;
     auto)   echo "auto" ;;
     fable)  echo "claude-fable-5.2" ;;
@@ -131,6 +131,7 @@ shortcut() {
     beam)   echo "beam-1.0" ;;
     carbon) echo "gemini-4-carbon" ;;
     hydrogen) echo "gemini-4-hydrogen" ;;
+    gemini-flash) echo "gemini-3.8-flash" ;;
     *) return 1 ;;
   esac
 }
@@ -604,12 +605,17 @@ if [ -n "$CHECKS" ]; then
 fi
 
 OUT_DIR=".droid-reviews"
-mkdir -p "$OUT_DIR"
-# The claims below retry under a new name until one is free; in a folder that
-# cannot be written none ever is.
-[ -w "$OUT_DIR" ] || die "cannot write to $ROOT/$OUT_DIR: check its permissions"
-# The folder ignores itself, so no repo needs a .gitignore line for it.
-[ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
+# Makes the folder, again if something deleted it mid-run (a reviewer once
+# "cleaned up" with rm -rf), before each file is claimed in it. The claims retry
+# under a new name until one is free; in a folder that cannot be written, or is
+# gone, none ever is, so that is checked first. The folder ignores itself, so no
+# repo needs a .gitignore line for it.
+out_dir() {
+  mkdir -p "$OUT_DIR" 2>/dev/null
+  [ -w "$OUT_DIR" ] || die "cannot write to $ROOT/$OUT_DIR: check its permissions"
+  [ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
+}
+out_dir
 STAMP="${_DROID_REVIEW_STAMP:-$(date +%Y%m%d-%H%M%S)}"   # a fan-out shares one stamp
 BRANCH="$(git branch --show-current | tr '/' '-')"
 # The model is in the name so parallel runs on different models are told apart at a
@@ -623,7 +629,7 @@ OUT="$OUT_BASE.md"
 # each other's reviews.
 claim_out() {
   local n=2
-  while ! ( set -C; : > "$OUT" ) 2>/dev/null; do
+  while out_dir; ! ( set -C; : > "$OUT" ) 2>/dev/null; do
     OUT="$OUT_BASE-$n.md"
     n=$((n + 1))
   done
@@ -645,7 +651,7 @@ fi
 claim_log() {
   local n=2 base="$OUT_BASE"
   LOG="$OUT_BASE.log"
-  while ! ( set -C; : > "$LOG" ) 2>/dev/null; do
+  while out_dir; ! ( set -C; : > "$LOG" ) 2>/dev/null; do
     OUT_BASE="$base-$n"; LOG="$OUT_BASE.log"
     n=$((n + 1))
   done
@@ -668,6 +674,7 @@ run_meta() {
   MODEL="${MODEL:-}" EFFORT="${EFFORT:-}" ASK="${ASK:-}" CHECKS="${CHECKS:-}" \
   SESSION="${SESSION:-}" SESSION_FILE="${SESSION_FILE:-}" \
   OUT="${OUT:-}" LOG="${LOG:-}" PID="$$" DROID_EXIT="${DROID_EXIT:-}" HERE="$(dirname "$SELF")" \
+  META_KEEP="${META_KEEP:-}" \
   SC_IDS="$(for s in $SHORTCUTS; do shortcut "$s"; done)" \
   python3 - "$@" <<'PY'
 import datetime, json, os, re, subprocess, sys, zlib
@@ -683,19 +690,29 @@ def git(*args, raw=False):
         return None
     return r.stdout if raw else r.stdout.strip()
 
+# A run keeps a copy of its metadata outside the repo (META_KEEP), so a
+# .droid-reviews deleted while droid works costs the history, not this review.
 def load():
-    try:
-        with open(meta) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    for path in (meta, env("META_KEEP")):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (OSError, TypeError, ValueError):
+            pass
+    return {}
 
 def save(m):
-    tmp = "%s.%d.tmp" % (meta, os.getpid())
-    with open(tmp, "w") as f:
-        json.dump(m, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, meta)
+    folder = os.path.dirname(meta)
+    if folder and not os.path.isdir(folder):
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, ".gitignore"), "w") as f:
+            f.write("*\n")
+    for path in filter(None, (meta, env("META_KEEP"))):
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w") as f:
+            json.dump(m, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
 
 def ended(m, status):
     t = now()
@@ -1066,7 +1083,7 @@ fan_out() {
   # The index: one row per model, and the machine-readable lines on stdout.
   local index="$OUT_DIR/${STAMP}-${BRANCH:-detached}-multi.md" base="$OUT_DIR/${STAMP}-${BRANCH:-detached}-multi"
   local k=2
-  while ! ( set -C; : > "$index" ) 2>/dev/null; do index="$base-$k.md"; k=$((k + 1)); done
+  while out_dir; ! ( set -C; : > "$index" ) 2>/dev/null; do index="$base-$k.md"; k=$((k + 1)); done
   local ok=0 path cell
   {
     echo "# droid $([ "$MODE" = feedback ] && echo feedback || echo review), ${n} models"
@@ -1124,6 +1141,10 @@ TXT
   fi
 }
 
+# Said to every run. The blocklist below enforces the deleting part; this
+# keeps a reviewer from trying, and from taking the block as a reason to stop.
+HANDS_OFF="Leave the working tree as you found it: do not modify tracked files, commit, or delete, move or clean up any file or folder (deleting is blocked), even ones that look stray. .droid-reviews/ holds this run's own log and must stay."
+
 # The prompt, one sentence per array element; joined with newlines below. Shell
 # has no template strings, so an array + printf is the idiomatic join.
 if [ -n "$SESSION" ]; then
@@ -1152,7 +1173,7 @@ elif [ "$MODE" = "feedback" ]; then
     "$(checks_block)"
     "End with a short 'Checks run' list naming each command and its result."
   )
-  LINES+=("Do not modify any tracked files or commit.")
+  LINES+=("$HANDS_OFF")
   PROMPT="$(printf '%s\n' "${LINES[@]}")"
 else
   LINES=(
@@ -1167,7 +1188,7 @@ else
     "(critical/high/medium/low), file:line, what breaks and a concrete scenario"
     "that triggers it, and why you are confident — a check you ran beats a read."
     "Only report things you have verified, not style preferences."
-    "Do not modify any tracked files or commit."
+    "$HANDS_OFF"
     "End with a short 'Checks run' list naming each command and its result."
     "If there are no findings, say exactly 'No findings.' before that list."
   )
@@ -1175,7 +1196,17 @@ else
 fi
 
 JSON="$(mktemp)"
-trap 'rm -f "$JSON" "$JSON.rc"' EXIT
+META_KEEP="$JSON.meta"
+trap 'rm -f "$JSON" "$JSON.rc" "$META_KEEP" "$JSON.settings"' EXIT
+
+# Commands droid refuses outright, merged into its settings for this run only.
+# `--auto medium` alone lets through any command the model itself rates low
+# risk, and one rated `rm -rf .droid-reviews` "low" as cleanup. droid checks
+# each part of a compound command and inside `bash -c`, and only what the
+# reviewer types: a test suite that removes its own temp files still runs.
+cat > "$JSON.settings" <<'SETTINGS'
+{"commandBlocklist": ["rm", "rmdir", "unlink", "mv", "git rm", "git clean", "git reset", "git checkout", "git switch", "git restore", "git stash", "git commit"]}
+SETTINGS
 
 # `--auto medium` lets the reviewer build and run the test suites, which is the
 # whole point; `--remove-tools` drops the file-editing tools, so it stays a
@@ -1193,6 +1224,7 @@ trap 'rm -f "$JSON" "$JSON.rc"' EXIT
 DROID_ARGS=(
   exec -o stream-json -m "$MODEL"
   --auto medium --remove-tools "ApplyPatch,Edit,Create"
+  --settings "$JSON.settings"
   --tag claude-triage
 )
 [ -n "$EFFORT" ] && DROID_ARGS+=(-r "$EFFORT")
@@ -1212,9 +1244,20 @@ running = {}   # commands droid started and has not had back: call id -> (turn, 
 done = err = None
 session = ""
 def note(text):
+    # The log is for watching. A line that cannot be written (the folder was
+    # deleted, the disk is full) is dropped: a crash here would close the pipe
+    # and kill droid mid-review.
     s = int(time.time() - t0)
-    with open(log, "a", encoding="utf-8") as f:
-        f.write("[%dm%02ds] %s\n" % (s // 60, s % 60, text))
+    try:
+        folder = os.path.dirname(log)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+            with open(os.path.join(folder, ".gitignore"), "w") as f:
+                f.write("*\n")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("[%dm%02ds] %s\n" % (s // 60, s % 60, text))
+    except OSError:
+        pass
 def target(p):
     keys = ("file_path", "path", "pattern", "patterns", "command", "url", "query", "description", "prompt")
     for key in keys + tuple(k for k in p if k not in keys):  # then any other argument

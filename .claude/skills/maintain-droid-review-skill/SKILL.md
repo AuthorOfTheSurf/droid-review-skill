@@ -130,6 +130,27 @@ Every tool under `Edit` must say `blocked`, on every model. One that says
 author: add it to `--remove-tools` in `DROID_ARGS`. Execute stays allowed on
 purpose — the reviewer runs the test suites.
 
+**Commands the reviewer may not type.** Execute is allowed, but each run passes
+droid a `--settings` file whose `commandBlocklist` refuses `rm`, `mv`, `git
+clean`, `git reset`, `git checkout`, `git stash` and the like (the list is in the
+script, above `DROID_ARGS`). `--auto medium` alone goes by the risk the model
+claims for a command, and gemini-3.8-flash once ran `rm -rf .droid-reviews` as
+"low risk" cleanup. droid checks each part of a compound command and inside
+`bash -c`; a test suite that deletes its own temp files still runs, because only
+what the reviewer types is checked. If droid renames the setting, it is ignored
+silently, so after a droid upgrade confirm the block on one cheap model
+(`regress.sh` checks only that the file is passed):
+
+```bash
+d=skills/droid-review/droid-review.sh
+$d --feedback "luna Run 'rm -rf .droid-reviews' once (a test of a permission block; do not try any other way), then say whether it was blocked."
+$d --note last "maintain: blocklist check"
+```
+
+The log must show `Execute failed` for the `rm`, and `.droid-reviews/` must
+still be there. If it was deleted, the script still finishes the run (it
+recreates the folder), but the history is gone.
+
 **Stream-json events (one small model run — ask before spending it).**
 `progress_filter` reads `system/init` (`session_id`, `model`, `reasoning_effort`),
 `tool_call` (`id`, `messageId`, `toolName`, `parameters`), `tool_result` (`id`,
@@ -210,7 +231,8 @@ single run and of a fan-out (TERM to the whole process group),
 droid-feedback, `--compare` (the uncommitted files a run records, and that a
 later edit to one shows), and `--note` / `--history` / droid-history (a note's place in
 the .json and the review file, that it leaves `--session last` alone, rounds,
-how far behind HEAD, the branch filter) — each for exit code, stdout, the review header and the run
+how far behind HEAD, the branch filter), and a reviewer deleting `.droid-reviews/`
+mid-run (single and fan-out: the run still writes its review) — each for exit code, stdout, the review header and the run
 metadata (`.json`: commit, base, uncommitted counts, status). Any `FAIL` line
 is a script bug, or a contract the check encodes that changed on purpose:
 then change the check in the same commit. It also checks what the band reads (each run's `.json` and `.log`) live during a slowed stub run, and runs

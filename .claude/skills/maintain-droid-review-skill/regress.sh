@@ -61,6 +61,8 @@ run "$t/o1" --base master
 # The default model at droid's default effort has nothing to check, so nothing
 # slow stands between the command and its files.
 check "review: every editing tool removed" grep -q -- '--remove-tools ApplyPatch,Edit,Create ' "$t/calls"
+check "review: deleting and moving files blocked" sh -c "grep -q -- '--settings ' '$t/calls' && grep -q '\"commandBlocklist\": \\[\"rm\", \"rmdir\", \"unlink\", \"mv\"' '$t/calls'"
+check "review: told to leave the tree alone" grep -q 'do not modify tracked files, commit, or delete, move or clean up' "$t/calls"
 check "review: the log says the command came back" grep -Eq '^\[[^]]*\] turn 2 ↳ Execute returned in [0-9]+s$' "$(sed -n 's/\.md$/.log/;1p' "$t/o1")"
 check "review: droid not asked for its model list" sh -c "! grep -q -- --list-tools '$t/calls'"
 md="$(sed -n 1p "$t/o1")"; m="$(meta_of "$md")"
@@ -229,8 +231,8 @@ done
 STUB_DROID_FAST=glm-5.3-flash STOP_AFTER_OK=1 interrupt "$t/o8b" 1 --base master --models glm,gemini
 check "late interrupt: glm stays ok"       sh -c "grep -q '^glm	ok	' '$t/o8b' && grep -q '^gemini	interrupted	' '$t/o8b'"
 check "late interrupt: glm metadata ok"    json "$(ls -t .droid-reviews/*glm-5.3-flash.json | head -1)" 'm["status"]=="ok" and m["finished"]'
-check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["status"]=="interrupted"'
-check "late interrupt: gemini, the second shortcut, the second colour" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["hue"]==1'
+check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-4-hydrogen.json | head -1)" 'm["status"]=="interrupted"'
+check "late interrupt: gemini, the second shortcut, the second colour" json "$(ls -t .droid-reviews/*gemini-4-hydrogen.json | head -1)" 'm["hue"]==1'
 
 # 8. droid-feedback.
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane" > "$t/o9" 2>&1; RC=$?
@@ -325,7 +327,20 @@ else
   echo "skip  band: tests (this claude has no \`plugin test\`)"
 fi
 
-# 11. No run left a temp file or a "running" status behind.
+# 11. The reviewer deletes .droid-reviews mid-run. The history goes; the run
+# must not: it once looped forever claiming a file in the missing folder, and
+# lost the review when its log and .json went with it.
+STUB_DROID_MODE=wipe run "$t/o11" --base master
+md11="$(sed -n 1p "$t/o11")"
+check "wiped mid-run: exit 0"              [ "$RC" = 0 ]
+check "wiped mid-run: the review is written" grep -q 'No findings (stub)' "$md11"
+check "wiped mid-run: its .json says ok"   json "$(meta_of "$md11")" 'm["status"]=="ok" and m["files"]["review"]'
+check "wiped mid-run: the log goes on"     grep -q 'done · ' "${md11%.md}.log"
+check "wiped mid-run: the folder still ignores itself" [ -z "$(git status --porcelain --untracked-files=all .droid-reviews)" ]
+STUB_DROID_MODE=wipe run "$t/o11b" --base master --models glm,gemini
+check "wiped mid-run, fan-out: both ok, and an index" sh -c "[ $RC = 0 ] && [ \"\$(grep -c '	ok	' '$t/o11b')\" = 2 ] && [ -f \"\$(tail -1 '$t/o11b')\" ]"
+
+# 12. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]
 check "no run still marked running"        sh -c "! grep -l '\"status\": \"running\"' .droid-reviews/*.json"
 

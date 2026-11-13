@@ -13,12 +13,15 @@
 #   STUB_DROID_MODE=fail-silent  completion, then exit 1 with nothing on stderr
 #   STUB_DROID_MODE=error        an error event; exit 1
 #   STUB_DROID_MODE=garbage      a line that is not JSON; exit 1
+#   STUB_DROID_MODE=wipe         ok, but deletes .droid-reviews after the first
+#                                tool call, as a reviewer once did "cleaning up"
 # STUB_DROID_DELAY=<seconds> sleeps before each event (default 0), for a run
 # long enough to watch (the rows in the band) or to interrupt.
 # STUB_DROID_TURNS=<n> makes the ok run take n turns (default 2).
 # STUB_DROID_FAST=<model id> ignores the delay for that model, so in a fan-out
 # it finishes while the others are still running.
-# STUB_DROID_CALLS=<file> appends each call's arguments to it, one line a call.
+# STUB_DROID_CALLS=<file> appends each call's arguments to it, one line a call,
+# and the contents of the --settings file it was given.
 set -euo pipefail
 
 [ -z "${STUB_DROID_CALLS:-}" ] || printf '%s\n' "$*" >> "$STUB_DROID_CALLS"
@@ -37,6 +40,7 @@ while [ $# -gt 0 ]; do
     -m|--model) model="$2"; shift 2 ;;
     -r|--reasoning-effort) effort="$2"; shift 2 ;;
     -s|--session-id) session="$2"; shift 2 ;;
+    --settings) [ -z "${STUB_DROID_CALLS:-}" ] || cat "$2" >> "$STUB_DROID_CALLS"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -44,10 +48,12 @@ done
 delay="${STUB_DROID_DELAY:-0}"
 [ "$model" != "${STUB_DROID_FAST:-}" ] || delay=0
 ev() { sleep "$delay"; printf '%s\n' "$1"; }
-case "${STUB_DROID_MODE:-ok}" in
-  ok)
+mode="${STUB_DROID_MODE:-ok}"
+case "$mode" in
+  ok|wipe)
     ev "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"model\":\"$model\",\"reasoning_effort\":\"$effort\"}"
     ev '{"type":"tool_call","messageId":"m1","toolName":"Read","parameters":{"file_path":"README.md"}}'
+    [ "$mode" != wipe ] || rm -rf .droid-reviews
     ev '{"type":"tool_call","id":"c2","messageId":"m2","toolName":"Execute","parameters":{"command":"git diff --stat"}}'
     printf '%s\n' '{"type":"tool_result","id":"c2","toolId":"Execute","isError":false,"value":"1 file changed"}'
     turns="${STUB_DROID_TURNS:-2}"
