@@ -616,6 +616,12 @@ out_dir() {
   [ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"
 }
 out_dir
+# A line appended to a run's log, also after the folder was deleted. Used where
+# the run is ending (an interrupt): a failure here must not stop the cleanup.
+log_line() {
+  { mkdir -p "$OUT_DIR" && { [ -e "$OUT_DIR/.gitignore" ] || echo '*' > "$OUT_DIR/.gitignore"; } &&
+    echo "$2" >> "$1"; } 2>/dev/null || true
+}
 STAMP="${_DROID_REVIEW_STAMP:-$(date +%Y%m%d-%H%M%S)}"   # a fan-out shares one stamp
 BRANCH="$(git branch --show-current | tr '/' '-')"
 # The model is in the name so parallel runs on different models are told apart at a
@@ -692,14 +698,17 @@ def git(*args, raw=False):
 
 # A run keeps a copy of its metadata outside the repo (META_KEEP), so a
 # .droid-reviews deleted while droid works costs the history, not this review.
+# The .json wins over the copy: after a deletion it may be only what a fan-out
+# parent wrote on an interrupt, and that status must reach the child's finish.
 def load():
-    for path in (meta, env("META_KEEP")):
+    m = {}
+    for path in (env("META_KEEP"), meta):
         try:
             with open(path) as f:
-                return json.load(f)
+                m.update(json.load(f))
         except (OSError, TypeError, ValueError):
             pass
-    return {}
+    return m
 
 def save(m):
     folder = os.path.dirname(meta)
@@ -720,7 +729,7 @@ def ended(m, status):
     if m.get("started"):
         m["duration_s"] = int((t - datetime.datetime.fromisoformat(m["started"])).total_seconds())
     head = git("rev-parse", "HEAD")
-    if head and head != m.get("head"):
+    if head and m.get("head") and head != m["head"]:
         m["head_at_finish"] = head
     if m.get("status") != "interrupted":
         m["status"] = status
@@ -953,7 +962,7 @@ PY
 # stderr, and its exit status in <i>.rc; the parent only watches and tables.
 elapsed() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
 words() {  # "3.7k words" in the body, below the header's "- turns:" line
-  local n; n="$(sed '1,/^- turns:/d' "$1" | wc -w | tr -d ' ')"
+  local n; n="$(sed '1,/^- turns:/d' "$1" 2>/dev/null | wc -w | tr -d ' ')"
   if [ "$n" -ge 1000 ]; then
     printf '%d.%dk words' $((n / 1000)) $((n % 1000 / 100))
   else
@@ -1064,12 +1073,12 @@ fan_out() {
       for ((i = 0; i < n; i++)); do
         [ "${STATE[i]}" = "run" ] || continue
         disown "${PIDS[i]}" 2>/dev/null || true   # no "Terminated" job notice
+        # The status first: a child whose droid dies writes its own end at
+        # once, and a finish keeps "interrupted" only if it is already there.
+        [ -z "${LOGS[i]}" ] || run_meta status "${LOGS[i]%.log}.json" interrupted || true
         kill_tree "${PIDS[i]}"
         STATE[i]="interrupted"; INFO[i]="interrupted"; DUR[i]=$now
-        if [ -n "${LOGS[i]}" ]; then
-          echo "[$(elapsed "$now")] interrupted" >> "${LOGS[i]}"
-          run_meta status "${LOGS[i]%.log}.json" interrupted || true
-        fi
+        [ -z "${LOGS[i]}" ] || log_line "${LOGS[i]}" "[$(elapsed "$now")] interrupted"
         say "$i" "interrupted  $(elapsed "$now")"
       done
       break
@@ -1101,7 +1110,7 @@ fan_out() {
   for ((i = 0; i < n; i++)); do
     # A run that did not finish still has a session worth continuing.
     [ -n "${SESS[i]}" ] || [ -z "${LOGS[i]}" ] || \
-      SESS[i]="$(sed -n 's/^\[[^]]*\] started .* session \([^ ]*\)$/\1/p' "${LOGS[i]}" | head -1)"
+      SESS[i]="$(sed -n 's/^\[[^]]*\] started .* session \([^ ]*\)$/\1/p' "${LOGS[i]}" 2>/dev/null | head -1 || true)"
     path="${RESULT[i]:-${LOGS[i]:--}}"
     if [ "${STATE[i]}" = "ok" ]; then
       ok=$((ok + 1)); cell="${INFO[i]% words}"
@@ -1337,7 +1346,7 @@ run_meta start "$META"
 # A fan-out child leaves the log line to its parent, which writes one too.
 RUN=""
 trap '[ -z "$RUN" ] || kill_tree "$RUN"
-      [ -n "${_DROID_REVIEW_CHILD:-}" ] || echo "[$(elapsed "$SECONDS")] interrupted" >> "$LOG"
+      [ -n "${_DROID_REVIEW_CHILD:-}" ] || log_line "$LOG" "[$(elapsed "$SECONDS")] interrupted"
       run_meta status "$META" interrupted; exit 130' INT TERM
 
 set +e

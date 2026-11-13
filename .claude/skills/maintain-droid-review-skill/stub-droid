@@ -53,7 +53,8 @@ case "$mode" in
   ok|wipe)
     ev "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"model\":\"$model\",\"reasoning_effort\":\"$effort\"}"
     ev '{"type":"tool_call","messageId":"m1","toolName":"Read","parameters":{"file_path":"README.md"}}'
-    [ "$mode" != wipe ] || rm -rf .droid-reviews
+    # A file the script recreates meanwhile can make rm say "not empty".
+    [ "$mode" != wipe ] || rm -rf .droid-reviews 2>/dev/null || true
     ev '{"type":"tool_call","id":"c2","messageId":"m2","toolName":"Execute","parameters":{"command":"git diff --stat"}}'
     printf '%s\n' '{"type":"tool_result","id":"c2","toolId":"Execute","isError":false,"value":"1 file changed"}'
     turns="${STUB_DROID_TURNS:-2}"

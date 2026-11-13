@@ -195,6 +195,8 @@ p = subprocess.Popen(sys.argv[3:], stdout=open(sys.argv[1], "w"), stderr=open(sy
 deadline = time.time() + 60
 while (count("running") < int(sys.argv[2]) or count("ok") < ok) and time.time() < deadline and p.poll() is None:
     time.sleep(0.2)
+while os.environ.get("WAIT_GONE") and os.path.isdir(".droid-reviews") and time.time() < deadline:
+    time.sleep(0.05)   # the stub deleting .droid-reviews (STUB_DROID_MODE=wipe)
 time.sleep(1)
 if os.environ.get("TERM_ONLY"):
     os.kill(p.pid, signal.SIGTERM)   # the script alone, as a plain `kill <pid>`
@@ -225,6 +227,14 @@ check "fan-out interrupt: exit 130"        [ "$RC" = 130 ]
 check "fan-out interrupt: both interrupted" [ "$(grep -c "	interrupted	" "$t/o8")" = 2 ]
 for j in $(ls -t .droid-reviews/*.json | head -2); do
   check "fan-out interrupt: $(basename "$j") interrupted" json "$j" 'm["status"]=="interrupted"'
+done
+
+# A TERM to the fan-out parent alone: each child's droid dies and the child
+# writes its own end at once, so "interrupted" must already be in its .json.
+TERM_ONLY=1 interrupt "$t/o8c" 2 --base master --models glm,gemini
+check "fan-out kill of the parent alone: exit 130" [ "$RC" = 130 ]
+for j in $(ls -t .droid-reviews/*.json | head -2); do
+  check "fan-out kill of the parent alone: $(basename "$j") interrupted" json "$j" 'm["status"]=="interrupted"'
 done
 
 # An interrupt after one model has finished must not take its result back.
@@ -339,6 +349,12 @@ check "wiped mid-run: the log goes on"     grep -q 'done · ' "${md11%.md}.log"
 check "wiped mid-run: the folder still ignores itself" [ -z "$(git status --porcelain --untracked-files=all .droid-reviews)" ]
 STUB_DROID_MODE=wipe run "$t/o11b" --base master --models glm,gemini
 check "wiped mid-run, fan-out: both ok, and an index" sh -c "[ $RC = 0 ] && [ \"\$(grep -c '	ok	' '$t/o11b')\" = 2 ] && [ -f \"\$(tail -1 '$t/o11b')\" ]"
+# Interrupted once the folder is gone: the parent must still stop every child,
+# write the index and say "interrupted", not die on a log it cannot append to.
+STUB_DROID_MODE=wipe STUB_DROID_DELAY=1 STUB_DROID_TURNS=20 WAIT_GONE=1 interrupt "$t/o11c" 0 --base master --models glm,gemini
+check "wiped, then interrupted: exit 130, an index" sh -c "[ $RC = 130 ] && [ -f \"\$(tail -1 '$t/o11c')\" ]"
+check "wiped, then interrupted: both interrupted" [ "$(grep -c "	interrupted	" "$t/o11c")" = 2 ]
+check "wiped, then interrupted: the logs say so" sh -c "[ \"\$(grep -l 'interrupted$' .droid-reviews/*.log | wc -l)\" -ge 2 ]"
 
 # 12. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]
