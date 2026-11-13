@@ -106,29 +106,31 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || true
 # default (--efforts shows it), and a higher one is opt-in, named on the run
 # ("luna max"), because a max-effort review can take half an hour. The family
 # names (fable, opus, sonnet, astra, sol, grok, qwen, kimi, deepseek, argon, muse, nemotron, haiku, beam) point at the newest
-# model in the family as of droid 1.1.0 — move them when droid ships a newer one.
-SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron haiku luna-fast beam"
+# model in the family as of droid 1.10.0 — move them when droid ships a newer one.
+SHORTCUTS="glm gemini luna auto fable opus sonnet astra sol grok qwen kimi deepseek argon muse nemotron haiku luna-fast beam carbon hydrogen"
 shortcut() {
   case "$1" in
     glm)    echo "glm-5.3-flash" ;;
     gemini) echo "gemini-3.8-flash" ;;
     luna)   echo "gpt-6-luna" ;;
     auto)   echo "auto" ;;
-    fable)  echo "claude-fable-5.1" ;;
+    fable)  echo "claude-fable-5.2" ;;
     opus)   echo "claude-opus-5-5" ;;
     sonnet) echo "claude-sonnet-5-5" ;;
     astra)  echo "gpt-6-astra" ;;
     sol)    echo "gpt-6.1-sol" ;;
     grok)   echo "grok-4.7" ;;
     qwen)   echo "qwen3.8-max" ;;
-    kimi)   echo "kimi-k3" ;;
-    deepseek) echo "deepseek-v4.1-flash" ;;
+    kimi)   echo "kimi-k3.1-pro" ;;
+    deepseek) echo "deepseek-v4.1-flash-1017" ;;
     argon)  echo "gemini-4-argon" ;;
     muse)   echo "muse-spark-1.3" ;;
     nemotron) echo "nemotron-3.5-super" ;;
     haiku)  echo "claude-haiku-5-5" ;;
     luna-fast) echo "gpt-6-luna-fast" ;;
     beam)   echo "beam-1.0" ;;
+    carbon) echo "gemini-4-carbon" ;;
+    hydrogen) echo "gemini-4-hydrogen" ;;
     *) return 1 ;;
   esac
 }
