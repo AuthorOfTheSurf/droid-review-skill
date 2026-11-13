@@ -61,6 +61,8 @@ run "$t/o1" --base master
 # The default model at droid's default effort has nothing to check, so nothing
 # slow stands between the command and its files.
 check "review: every editing tool removed" grep -q -- '--remove-tools ApplyPatch,Edit,Create ' "$t/calls"
+check "review: deleting and moving files blocked" sh -c "grep -q -- '--settings ' '$t/calls' && grep -q '\"commandBlocklist\": \\[\"rm\", \"rmdir\", \"unlink\", \"mv\"' '$t/calls'"
+check "review: told to leave the tree alone" grep -q 'do not modify tracked files, commit, or delete, move or clean up' "$t/calls"
 check "review: the log says the command came back" grep -Eq '^\[[^]]*\] turn 2 ↳ Execute returned in [0-9]+s$' "$(sed -n 's/\.md$/.log/;1p' "$t/o1")"
 check "review: droid not asked for its model list" sh -c "! grep -q -- --list-tools '$t/calls'"
 md="$(sed -n 1p "$t/o1")"; m="$(meta_of "$md")"
@@ -193,6 +195,8 @@ p = subprocess.Popen(sys.argv[3:], stdout=open(sys.argv[1], "w"), stderr=open(sy
 deadline = time.time() + 60
 while (count("running") < int(sys.argv[2]) or count("ok") < ok) and time.time() < deadline and p.poll() is None:
     time.sleep(0.2)
+while os.environ.get("WAIT_GONE") and os.path.isdir(".droid-reviews") and time.time() < deadline:
+    time.sleep(0.05)   # the stub deleting .droid-reviews (STUB_DROID_MODE=wipe)
 time.sleep(1)
 if os.environ.get("TERM_ONLY"):
     os.kill(p.pid, signal.SIGTERM)   # the script alone, as a plain `kill <pid>`
@@ -225,12 +229,20 @@ for j in $(ls -t .droid-reviews/*.json | head -2); do
   check "fan-out interrupt: $(basename "$j") interrupted" json "$j" 'm["status"]=="interrupted"'
 done
 
+# A TERM to the fan-out parent alone: each child's droid dies and the child
+# writes its own end at once, so "interrupted" must already be in its .json.
+TERM_ONLY=1 interrupt "$t/o8c" 2 --base master --models glm,gemini
+check "fan-out kill of the parent alone: exit 130" [ "$RC" = 130 ]
+for j in $(ls -t .droid-reviews/*.json | head -2); do
+  check "fan-out kill of the parent alone: $(basename "$j") interrupted" json "$j" 'm["status"]=="interrupted"'
+done
+
 # An interrupt after one model has finished must not take its result back.
 STUB_DROID_FAST=glm-5.3-flash STOP_AFTER_OK=1 interrupt "$t/o8b" 1 --base master --models glm,gemini
 check "late interrupt: glm stays ok"       sh -c "grep -q '^glm	ok	' '$t/o8b' && grep -q '^gemini	interrupted	' '$t/o8b'"
 check "late interrupt: glm metadata ok"    json "$(ls -t .droid-reviews/*glm-5.3-flash.json | head -1)" 'm["status"]=="ok" and m["finished"]'
-check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["status"]=="interrupted"'
-check "late interrupt: gemini, the second shortcut, the second colour" json "$(ls -t .droid-reviews/*gemini-3.8-flash.json | head -1)" 'm["hue"]==1'
+check "late interrupt: gemini interrupted" json "$(ls -t .droid-reviews/*gemini-4-hydrogen.json | head -1)" 'm["status"]=="interrupted"'
+check "late interrupt: gemini, the second shortcut, the second colour" json "$(ls -t .droid-reviews/*gemini-4-hydrogen.json | head -1)" 'm["hue"]==1'
 
 # 8. droid-feedback.
 PATH="$t/bin:$PATH" "$r/skills/droid-feedback/droid-feedback.sh" --base master "is this sane" > "$t/o9" 2>&1; RC=$?
@@ -325,7 +337,26 @@ else
   echo "skip  band: tests (this claude has no \`plugin test\`)"
 fi
 
-# 11. No run left a temp file or a "running" status behind.
+# 11. The reviewer deletes .droid-reviews mid-run. The history goes; the run
+# must not: it once looped forever claiming a file in the missing folder, and
+# lost the review when its log and .json went with it.
+STUB_DROID_MODE=wipe run "$t/o11" --base master
+md11="$(sed -n 1p "$t/o11")"
+check "wiped mid-run: exit 0"              [ "$RC" = 0 ]
+check "wiped mid-run: the review is written" grep -q 'No findings (stub)' "$md11"
+check "wiped mid-run: its .json says ok"   json "$(meta_of "$md11")" 'm["status"]=="ok" and m["files"]["review"]'
+check "wiped mid-run: the log goes on"     grep -q 'done · ' "${md11%.md}.log"
+check "wiped mid-run: the folder still ignores itself" [ -z "$(git status --porcelain --untracked-files=all .droid-reviews)" ]
+STUB_DROID_MODE=wipe run "$t/o11b" --base master --models glm,gemini
+check "wiped mid-run, fan-out: both ok, and an index" sh -c "[ $RC = 0 ] && [ \"\$(grep -c '	ok	' '$t/o11b')\" = 2 ] && [ -f \"\$(tail -1 '$t/o11b')\" ]"
+# Interrupted once the folder is gone: the parent must still stop every child,
+# write the index and say "interrupted", not die on a log it cannot append to.
+STUB_DROID_MODE=wipe STUB_DROID_DELAY=1 STUB_DROID_TURNS=20 WAIT_GONE=1 interrupt "$t/o11c" 0 --base master --models glm,gemini
+check "wiped, then interrupted: exit 130, an index" sh -c "[ $RC = 130 ] && [ -f \"\$(tail -1 '$t/o11c')\" ]"
+check "wiped, then interrupted: both interrupted" [ "$(grep -c "	interrupted	" "$t/o11c")" = 2 ]
+check "wiped, then interrupted: the logs say so" sh -c "[ \"\$(grep -l 'interrupted$' .droid-reviews/*.log | wc -l)\" -ge 2 ]"
+
+# 12. No run left a temp file or a "running" status behind.
 check "no .tmp files left"                 [ -z "$(ls .droid-reviews/*.tmp 2>/dev/null)" ]
 check "no run still marked running"        sh -c "! grep -l '\"status\": \"running\"' .droid-reviews/*.json"
 

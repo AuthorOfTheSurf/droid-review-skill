@@ -24,7 +24,7 @@ Benefits: Ship features & fixes with greater confidence. Solicit review from mul
 # Optional parameters. I mainly specify model shortcuts
 /droid-review [model] [effort] [focus]
 
-# Review with Gemini (gemini-3.8-flash) on high effort
+# Review with Gemini (gemini-4-hydrogen) on high effort
 /droid-review gemini high
 
 # Review with multiple models in parallel
@@ -70,7 +70,7 @@ Install all three together, because the other two wrap the script in `droid-revi
 
 ## Models
 
-Shortcuts: `glm` (default), `gemini`, `luna`, `auto`, `fable`, `opus`, `sonnet`, `astra`, `sol`, `grok`, `qwen`, `kimi`, `deepseek`, `argon`, `muse`, `nemotron`, `haiku`, `luna-fast`, `beam`. Any other model id droid accepts works too. Each runs at droid's default effort unless you name one. Maintainers bump the versions of these shortcuts periodically.
+Shortcuts: `glm` (default), `gemini`, `luna`, `auto`, `fable`, `opus`, `sonnet`, `astra`, `sol`, `grok`, `qwen`, `kimi`, `deepseek`, `argon`, `muse`, `nemotron`, `haiku`, `luna-fast`, `beam`, `carbon`, `hydrogen`, `gemini-flash`. Any other model id droid accepts works too. Each runs at droid's default effort unless you name one. Maintainers bump the versions of these shortcuts periodically.
 
 ```bash
 droid-review.sh --models                 # list the shortcuts
